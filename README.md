@@ -4,63 +4,136 @@
 
 The goal is not to replace Resolve. The goal is to remove repetitive work between plugging in a camera card and actually editing, while giving Resolve local semantic footage intelligence that can find, organize, and prepare useful moments from source media.
 
-> **Current status: research and product-design phase. Do not begin implementation from assumptions in this repository until the open workflow decisions in `docs/DECISIONS.md` are resolved.**
+> **Current status: implementation has started. A first local vertical slice now exists for source indexing, semantic search, handled moment creation, and Resolve SELECTS timeline generation.**
+
+## Core target
+
+The product benchmark is Wideframe-style footage understanding:
+
+**analyze once, understand deeply, query repeatedly.**
+
+That means clip resolved should support both automatic initial organization and brand-new later requests such as:
+
+- `food shots`
+- `all the luxury cars`
+- `show me wide shots of the restaurant interior`
+- transcript-driven interview searches
+
+without rebuilding the full footage corpus for every new query.
+
+## Current implemented vertical slice
+
+```text
+local source folder
+  -> ffprobe metadata
+  -> SynthCut actual CLIP image embeddings
+  -> persistent SQLite visual index
+  -> arbitrary text query using SynthCut actual text embeddings
+  -> VideoHighlighter actual region-building functions
+  -> clip-resolved editorial handles
+  -> Resolve MCP actual connection helper
+  -> DaVinci Resolve SELECTS timeline via exact source ranges
+```
+
+No detected select is rendered into a replacement MP4.
+
+## Quick start for Claude Code / Codex / local development
+
+Read [`AGENTS.md`](AGENTS.md) first.
+
+Then:
+
+```bash
+bash scripts/bootstrap_upstreams.sh
+source .venv/bin/activate
+clip-resolved doctor --deep
+```
+
+The bootstrap script pulls exact inspected upstream commits for:
+
+- `Relo-video/SynthCut`
+- `Aseiel/VideoHighlighter`
+- `samuelgursky/davinci-resolve-mcp`
+
+These are working code dependencies, not merely references.
+
+Example local test:
+
+```bash
+clip-resolved index \
+  --project-root "/path/to/Test Project" \
+  --source "/path/to/Test Project/Media/Osmo"
+
+clip-resolved search \
+  --project-root "/path/to/Test Project" \
+  "all the luxury cars"
+
+clip-resolved moments \
+  --project-root "/path/to/Test Project" \
+  "all the luxury cars"
+
+clip-resolved selects \
+  --project-root "/path/to/Test Project" \
+  "all the luxury cars"
+```
+
+The final command changes the currently open Resolve project and should first be tested in a disposable project.
 
 ## Product direction
 
-The current working concept is one macOS app as the main interaction layer for:
+The complete product still includes:
 
 1. Camera-card detection and safe ingest
-2. Verified offload of originals
-3. Local media analysis and indexing
-4. Detection of useful shots and moments inside longer source clips
-5. Expansion of detected moments with editable handles
-6. Shoot-specific organization of those ranges
-7. Preparation of Resolve bins, metadata, selects timelines, and other supported structures
-8. Semantic search during editing
-9. Resolve automation through supported APIs and scripts
+2. Mixed-card temporal grouping and user confirmation
+3. Verified offload into the final portable project root
+4. Local multimodal footage analysis and indexing
+5. Detection of useful moments inside long source clips
+6. Expansion of moments with editorial handles
+7. Shoot-specific initial SELECTS timelines
+8. Arbitrary later semantic/transcript queries
+9. Resolve-side search/selects companion UI
+10. Safe project portability/relink/archive behavior
 
 DaVinci Resolve remains the editing environment.
 
-## Core requirement
+## OSS-first rule
 
-The system is **not** merely:
+Implementation originality has no value here.
 
-`offload -> import everything -> manually search footage`
+If public OSS already works, use the actual code: clone it, copy it, vendor it, fork it, or patch it directly. Do not rewrite working systems merely to make them look native to clip resolved.
 
-The stronger target is:
+Current major upstream implementations include:
 
-`verified originals -> local analysis -> useful moment detection -> handles -> organized Resolve-ready ranges/selects + untouched originals -> semantic search remains available during editing`
+- [SynthCut](https://github.com/Relo-video/SynthCut) for local semantic video intelligence and transcript/search pieces
+- [VideoHighlighter](https://github.com/Aseiel/VideoHighlighter) for useful-moment region construction, framing, quality, and detection logic
+- [DaVinci Resolve MCP](https://github.com/samuelgursky/davinci-resolve-mcp) for tested Resolve scripting/control
+- [KontentManager](https://github.com/SoCloseSociety/kontentmanager) for later verified ingest/card workflow reuse
+- [SD-Offload](https://github.com/t0nyz0/SD-Offload) for later safe card-cleanup logic
 
-The source media must remain intact. Useful shot ranges should preferably reference the original media rather than create newly rendered duplicate clips.
-
-## Design principles
-
-- Research every workflow stage before locking architecture.
-- Do not force a previously discussed tool just because it already exists.
-- Prefer local and effectively free processing on Apple Silicon when quality is good enough.
-- Different shoot types should use different organization and analysis priorities.
-- Keep backend components replaceable so better models and tools can be swapped in later.
-- Use official Resolve scripting APIs where possible. Avoid brittle UI automation when a supported API exists.
-- The companion app should remove prep work, not move manual prep into another app.
-
-## Reference projects and ideas
-
-These are active references, not mandatory dependencies:
-
-- [Wideframe](https://try.wideframe.com/) for agent-driven editing workflow patterns and skills
-- [SynthCut](https://github.com/Relo-video/SynthCut) for local semantic search, Whisper, MCP tooling, and inspect-plan-edit-verify patterns
-- [Omnishot](https://github.com/jdarmada/omnishot) for multimodal b-roll search, scene-level indexing, and semantic retrieval
-- DaVinci Resolve scripting and MCP projects for direct Resolve automation
+Wideframe is the product-quality benchmark for footage understanding, not a source-code dependency.
 
 ## Documentation
 
-- [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) - product behavior and UX direction
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - current system architecture and replaceable components
-- [`docs/DECISIONS.md`](docs/DECISIONS.md) - accepted decisions, rejected assumptions, and unresolved questions
-- [`docs/RESEARCH.md`](docs/RESEARCH.md) - researched tools, repos, workflows, and benchmark plan
-- [`docs/HANDOFF.md`](docs/HANDOFF.md) - instructions for the future coding agent
+- [`AGENTS.md`](AGENTS.md) — mandatory coding-agent source of truth
+- [`CLAUDE.md`](CLAUDE.md) — Claude Code-specific entrypoint
+- [`docs/IMPLEMENTATION_HANDOFF.md`](docs/IMPLEMENTATION_HANDOFF.md) — what is implemented, how to run it, what to test next
+- [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) — product behavior
+- [`docs/INGEST_FLOW.md`](docs/INGEST_FLOW.md) — locked ingest flow
+- [`docs/RESOLVE_PROJECT_FLOW.md`](docs/RESOLVE_PROJECT_FLOW.md) — Resolve/project portability rules
+- [`docs/WIDEFRAME_BENCHMARK.md`](docs/WIDEFRAME_BENCHMARK.md) — footage-intelligence quality target
+- [`docs/MOMENT_EXTRACTION.md`](docs/MOMENT_EXTRACTION.md) — useful-moment strategy
+- [`docs/ASSEMBLY_STRATEGY.md`](docs/ASSEMBLY_STRATEGY.md) — aggressive OSS reuse strategy
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — broader architecture
 
-## Current phase
+## What still requires Jonny's Mac
 
-We are still mapping the real Osmo-to-Resolve workflow step by step. The repository should capture decisions as they are made. Implementation starts only after the workflow and first build scope are sufficiently defined.
+This environment cannot run his local Resolve instance or real Osmo footage. The next local session needs to validate:
+
+- semantic retrieval quality on actual footage
+- indexing throughput / RAM pressure
+- VideoHighlighter region grouping quality
+- Resolve source-frame boundary behavior
+- direct Media Pool path matching/import behavior
+- the first real generated SELECTS timeline
+
+After that test, tune from actual misses and false positives instead of adding more theory.
