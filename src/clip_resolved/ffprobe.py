@@ -21,10 +21,11 @@ def _rate(value: str | None) -> float:
             return 0.0
 
 
-def _asset_id(path: Path, size: int, mtime_ns: int) -> str:
-    # Vertical-slice identity. The final canonical project manifest can replace
-    # this with verified ingest hashes without changing callers.
-    payload = f"{path.resolve()}\0{size}\0{mtime_ns}".encode("utf-8")
+def _asset_id(path: Path) -> str:
+    # Stable for the current vertical slice while a source remains at one path.
+    # Verified ingest hashes can replace this later without coupling callers to
+    # size/mtime, which are freshness signals rather than identity.
+    payload = str(path.resolve()).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()[:24]
 
 
@@ -71,7 +72,7 @@ def probe(path: str | Path) -> MediaAsset:
     height = int(video.get("height") or 0)
 
     return MediaAsset(
-        id=_asset_id(source, stat.st_size, stat.st_mtime_ns),
+        id=_asset_id(source),
         path=source,
         duration=max(0.0, duration),
         fps=max(0.0, fps),
