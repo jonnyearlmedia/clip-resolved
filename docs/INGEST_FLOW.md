@@ -57,7 +57,7 @@ At this stage:
 - create the destination folders
 - copy each source MP4 to its assigned project
 - verify the copied media against the source with a reliable checksum/offload engine
-- preserve the original card contents untouched
+- preserve the original card contents untouched during copy/verification
 - show progress per project/group and overall
 - do not begin semantic slicing, Resolve organization, or creative analysis yet
 
@@ -72,20 +72,46 @@ New Year's Eve     22 / 22 copied and verified
 TOTAL             123 / 123 copied and verified
 ```
 
-## Human checkpoint after offload
+## Step 5: Human-approved cleanup of only verified source media
 
-Once all files are verified, clip resolved should stop at a clear human checkpoint rather than automatically launching every downstream process.
+After a source file has a verified destination copy, clip resolved may offer to delete **that exact source file from the card**.
 
-Example:
+This is preferred over automatically formatting the entire card because it preserves anything clip resolved did not ingest or did not understand.
+
+### Safety invariant
+
+A source file may be deleted only when:
+
+1. clip resolved has an explicit source-path -> destination-path record for it
+2. the destination exists
+3. the destination has been re-read and checksum-verified against the source
+4. the user explicitly triggers the cleanup step
+
+If any file fails verification, that source file remains untouched.
+
+Files that were never selected/imported also remain untouched.
+
+### Associated DJI sidecars
+
+DJI cameras can create companion files such as `.LRF` preview files. Cleanup logic must not blindly delete the whole DCIM tree. It should discover and understand associated sidecars and delete them only when their relationship to a successfully imported source clip is known and the user chose to clean that imported media from the card.
+
+Unknown or unrelated files stay on the card.
+
+### Example checkpoint
 
 ```text
-123 / 123 files copied and verified ✓
+123 / 123 imported files verified ✓
 
-CARD SAFE
-
-[ Continue ]
+[ Delete verified imports from card ]
+[ Keep everything on card ]
 ```
+
+If the user chooses deletion, the app deletes only the verified source set (plus explicitly recognized associated sidecars when appropriate), then reports what remains on the card.
+
+A later full in-camera format can remain optional, but it is not required as the default cleanup path.
+
+## Human checkpoint after cleanup
 
 The user is comfortable explicitly triggering the next major stage when a human checkpoint is useful.
 
-No downstream behavior is decided in this document beyond this point.
+No semantic slicing, Resolve organization, or creative analysis starts automatically from the cleanup action.
