@@ -21,6 +21,7 @@ Its free AGPL-3.0 code already combines multiple signals including:
 - transcript/keyword matches
 - clip-quality signals such as blur penalties
 - local visual/CLIP search
+- shot/framing classification using sparse samples, face fraction, motion, brightness, and sharpness
 
 Most importantly, `modules/auto_segments.py` already implements the region-building logic we need:
 
@@ -51,34 +52,123 @@ Suggested states:
 
 The default should favor recall over ruthless highlight compression.
 
-## Signal stack
+## Always-on foundation
 
-### Always-on foundation
+These are cheap/useful enough to run for essentially every verified visual clip:
 
-- `ffprobe` metadata from the actual verified source
-- local visual sampling / embeddings
+1. `ffprobe` source metadata
+2. source-direct local CLIP/visual index
+3. scene/change analysis as a **boundary hint**, not a definition of a shot
+4. sparse framing analysis from VideoHighlighter `shot_type.py`
+   - close subject / subject / wide
+   - face presence/fraction
+   - camera/frame change amount
+   - brightness
+   - sharpness
+5. VideoHighlighter candidate-region construction/merging
+6. cheap quality measurement such as median Laplacian sharpness
+
+### Quality policy
+
+Blur/sharpness should begin as a **penalty / review signal**, not an absolute reject.
+
+Intentional motion blur, rack focus, whip moves, or brief soft starts can still be useful with handles. Hard rejection should be reserved for obviously unusable ranges after real-footage testing.
+
+## Default shoot profiles
+
+### Restaurant / commercial social b-roll
+
+**Primary signals**
+
+- CLIP semantic visual index/search
+- shot/framing analysis
 - scene/change boundaries
-- basic motion/continuity signals
-- technical-quality checks where cheap and reliable
+- sharpness/quality signal
+- face/person presence where useful
 
-### Shoot-aware signals
+**Secondary signals**
 
-Use additional detectors when they fit the shoot:
+- generic object detection only for classes it actually knows reliably, such as people and common objects
+- motion/change evidence as supporting information
 
-- transcript/Whisper for interviews, speeches, dialogue-heavy events
-- audio peaks for reactions/events where audio carries meaning
-- object/action detection for visual b-roll and event footage
-- face/person signals when people are a meaningful category
+**Off by default**
 
-Do not force every expensive analyzer onto every shoot.
+- action recognition
+- audio-peak scoring
+- Whisper/transcript
 
-## Semantic layer
+Reasoning:
 
-Use the existing SynthCut local CLIP/ONNX implementation as a strong candidate for semantic visual indexing/search rather than relying on VideoHighlighter's entire model stack for every semantic task.
+- VideoHighlighter's own detector guide recommends CLIP first for scene, setting, framing, and general visual meaning.
+- YOLO's built-in vocabulary is limited to its trained classes; restaurant-specific concepts such as a particular dish or plating state are not guaranteed.
+- Action recognition is only useful when the desired category is truly temporal and is inside Kinetics-400 or a custom trained model. Do not spend compute on it by default.
+- handheld Osmo camera movement can create strong motion deltas that are not automatically useful moments, so motion peaks should not dominate selection.
 
-The semantic layer should help answer both:
+Example semantic categories that can be queried after one CLIP index:
 
-- **what is this moment?** (food, exterior, chef, customer, signage, detail, etc.)
+- food / plated dish / food close-up
+- drink / cocktail
+- chef / staff / customer / people
+- food preparation / cooking scene
+- exterior / storefront
+- interior / dining room
+- signage / logo
+- detail / texture / close-up
+- wide establishing shot
+
+These are runtime queries, not permanently trained categories.
+
+### Event coverage
+
+Keep the restaurant foundation, then enable selectively:
+
+- audio peaks for applause, cheers, laughter, crowd reactions
+- Whisper/transcript when speeches/interviews matter
+- stronger person/face presence signal
+- motion peaks at low-to-moderate weight for obvious bursts of activity
+
+Do not automatically equate loud or high-motion with good. They are candidate generators/supporting evidence.
+
+### Interview / talking footage
+
+Primary:
+
+- Whisper transcript + timestamped search
+- silence/dead-air analysis
+- face/subject framing
+- sharpness/quality
+
+Secondary:
+
+- CLIP for visual cutaways and framing labels
+- scene changes when actual edits/camera changes exist
+
+Motion/action/object scoring should normally be low priority here.
+
+### Personal / travel / family footage
+
+Use the same visual foundation and dynamically enable:
+
+- faces/people
+- audio peaks for reactions
+- CLIP scene queries
+- transcript when spoken moments matter
+
+No universal fixed category list is required.
+
+## Why CLIP is the main semantic layer
+
+VideoHighlighter's detector guide makes an important distinction:
+
+- CLIP is good for **whole-scene / framing / appearance semantics** and embeds frames once, after which additional text queries are nearly free.
+- object detection is better for small discrete trained objects.
+- action recognition is better when the category is defined by movement over time.
+
+For clip resolved, the source-direct SynthCut CLIP/ONNX implementation remains a strong reuse candidate for the primary semantic index. VideoHighlighter can contribute the higher-level detector routing and region logic.
+
+The semantic layer should answer both:
+
+- **what is this moment?**
 - **where else is something similar?**
 
 A moment may carry multiple semantic labels and may appear in multiple SELECTS timelines.
@@ -99,7 +189,7 @@ model region:      00:37.2 -> 00:44.1
 editorial handles: 00:35.2 -> 00:47.1
 ```
 
-Exact handle defaults remain to be tuned on Jonny's real footage.
+Exact handle defaults remain to be tuned on real footage.
 
 ## No derived MP4 requirement
 
@@ -130,6 +220,16 @@ Each timeline contains handled source ranges referencing the original Media Pool
 
 The exact category set is shoot-specific. Do not create empty universal categories.
 
+## Editor-workflow validation
+
+This output matches established Resolve editing behavior rather than inventing a proprietary organization system:
+
+- editors commonly build stringouts/selects timelines from long b-roll sources
+- stacked/source timelines are then used to pull selections into the real edit
+- rough in/out points are intentionally generous and refined later
+
+clip resolved is automating the logging/selects pass, not replacing the editor's final trim decisions.
+
 ## Licensing note
 
 VideoHighlighter is AGPL-3.0. Because clip resolved is currently a public repository and is a personal tool, direct reuse remains viable, but the implementation must preserve the upstream license obligations.
@@ -142,12 +242,17 @@ Before vendoring source into the repository, decide whether to:
 
 Licensing is not a reason to independently reinvent the algorithm.
 
-## Next design/test question
+## Next implementation test
 
-Benchmark this candidate-region engine on Jonny's actual Osmo footage and determine:
+The next useful milestone is not another architecture document. It is a real-footage benchmark:
 
-- which signals improve useful-select recall for restaurant/event/social footage
-- what minimum/maximum moment duration feels editorially useful
-- how aggressively nearby evidence should merge
-- what confidence threshold separates primary selects from review candidates
-- what pre/post handle defaults produce comfortable editing room
+1. take representative Osmo restaurant/event source clips
+2. build the CLIP index
+3. run sparse shot/framing + sharpness analysis
+4. run scene/change analysis
+5. feed those signals into the reused VideoHighlighter region builder
+6. classify resulting regions with a restaurant/event semantic query set
+7. apply provisional handles
+8. inspect what percentage of genuinely useful shots were found and how much junk was included
+
+Tune only from those misses/false positives.
