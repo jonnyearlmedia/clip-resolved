@@ -8,7 +8,7 @@
 - The user can move clips between groups if the automatic grouping is slightly wrong.
 - The user confirms each group before ingest continues.
 
-**OSS baseline:** KontentManager already provides automatic card detection, pre-import browsing/preview, targeted or bulk import, manual triage/reassignment between projects, hash-based dedup, and verified atomic copy. clip resolved should study/reuse that implementation rather than inventing this interaction layer from scratch.
+**OSS baseline:** KontentManager already provides automatic card detection, pre-import browsing/preview, targeted or bulk import, manual triage/reassignment between projects, hash-based dedup, and verified atomic copy. clip resolved should reuse/adapt that implementation rather than inventing this interaction layer from scratch.
 
 ## Step 2: Name and classify each group
 
@@ -24,11 +24,24 @@ Example:
 - `Carabao` → Client
 - `New Year's Eve` → Personal
 
-## Step 3: Automatic destination routing
+## Step 3: Group confirmation is the main GO action
+
+Once all groups are named/classified and the user confirms them, clip resolved should automatically begin the non-destructive file legwork for **all confirmed groups**.
+
+There is no separate per-project `Prepare` button.
+
+Confirmation triggers:
+
+1. create/rout project folders
+2. verified offload
+3. register the copied source paths with the local intelligence/indexing layer
+4. begin building the derived indexes/analysis artifacts required by the next workflow stages
+
+The user does not need to manually start those stages project-by-project.
+
+## Step 4: Automatic destination routing
 
 The normal root is the user's **Active Projects** folder.
-
-clip resolved creates/uses two top-level routing folders:
 
 ```text
 Active Projects/
@@ -36,7 +49,7 @@ Active Projects/
 └── Client/
 ```
 
-The confirmed groups route automatically by type:
+Confirmed groups route automatically by type:
 
 ```text
 Active Projects/
@@ -50,20 +63,17 @@ Active Projects/
 
 The user should not have to manually choose a destination for every group unless they explicitly override the default root.
 
-## Step 4: Verified offload
+## Step 5: Verified offload
 
-After the user confirms the groups, names, and Personal/Client classification, the next action is a **verified copy from the card into those destination folders**.
+After group confirmation:
 
-At this stage:
-
-- create the destination folders
+- create destination folders
 - copy each source MP4 to its assigned project
-- verify the copied media against the source with a reliable checksum/offload engine
-- preserve the original card contents untouched during copy/verification
-- show progress per project/group and overall
-- do not begin semantic slicing, Resolve organization, or creative analysis yet
+- verify copied media against source with a proven checksum/offload engine
+- preserve original card contents during copy/verification
+- show progress per group and overall
 
-Example status:
+Example:
 
 ```text
 Christmas Eve      31 / 31 copied and verified
@@ -79,53 +89,68 @@ TOTAL             123 / 123 copied and verified
 - FilmCan: mature fan-out verified copy, resume, xxHash128, paranoid disk re-read mode
 - SD-Offload: SHA-256 card-read canonical hash + uncached destination read-back + crash-safe journal
 
-Use proven pieces rather than implementing generic copy/verification logic from scratch.
+## Step 6: Automatic registration/index-prep after each verified copy
 
-## Step 5: Human-approved cleanup of only verified source media
+As files finish verified offload, clip resolved can register their new destination paths with the footage-intelligence layer automatically. It should not make another source-media copy.
 
-After a source file has a verified destination copy, clip resolved may offer to delete **that exact source file from the card**.
+Reuse existing folder/path-based patterns:
 
-This is preferred over automatically formatting the entire card because it preserves anything clip resolved did not ingest or did not understand.
+- Omnishot links/watches an existing library folder, indexes videos in place, and keeps a manifest mapping derived chunks back to untouched source paths.
+- SynthCut imports assets from absolute local source paths and builds transcript/visual indexes against those assets.
+
+Desired shape:
+
+```text
+Active Projects/Client/Carabao/<original media>
+        ↓
+register existing source paths
+        ↓
+build local derived indexes/analysis artifacts
+```
+
+This happens automatically as part of the confirmed ingest job.
+
+The exact analysis performed is intentionally handled by the next workflow-design stage.
+
+## Step 7: Human-approved cleanup of only verified source media
+
+The one deliberate human checkpoint is destructive cleanup of the card.
+
+After source files have verified destination copies, clip resolved may offer to delete those exact verified source files from the card.
 
 ### OSS baseline: SD-Offload WipeGate
 
-SD-Offload already implements the destructive-safety pattern we want. Its `WipeGate.swift` is the primary reference for this stage.
+Reuse/adapt `WipeGate.swift` rather than authoring a new destructive-safety system.
 
-Important behavior to preserve/adapt:
+Important behavior:
 
-- deletion is based only on the session manifest; it does **not** re-enumerate the card and decide what to erase afterward
-- strict fail-closed behavior: any blocker means delete nothing
-- only files in verified terminal states are deletion-eligible
-- verify the same physical/logical card is still mounted
-- reject read-only cards, changed files, symlinks/irregular paths, and paths escaping the card root
-- re-stat source files before deletion and verify size/mtime still match the planned source
-- require the journal to be durably flushed before destruction
-- optionally require a second verified destination before deletion
-- maintain an explicit list of planned deletions
-
-This is much closer to clip resolved's desired cleanup model than formatting the entire card.
+- deletion is based only on the session manifest
+- any blocker means delete nothing
+- only verified terminal-state files are eligible
+- verify the same card is still mounted
+- reject changed/irregular/escaping paths
+- re-stat source files before deletion
+- require durable journal state before destruction
+- optionally require a second verified destination
+- maintain an explicit planned-deletion list
 
 ### Safety invariant
 
 A source file may be deleted only when:
 
-1. clip resolved has an explicit source-path -> destination-path record for it
-2. the destination exists
-3. the destination has been re-read and checksum-verified against the source
-4. the source still matches the file that was planned/imported
-5. the user explicitly triggers the cleanup step
+1. explicit source-path → destination-path record exists
+2. destination exists
+3. destination has been re-read and checksum-verified
+4. source still matches the planned/imported file
+5. user explicitly triggers cleanup
 
-If any file fails verification, that source file remains untouched.
+Unknown, unselected, failed, or unrelated files stay on the card.
 
-Files that were never selected/imported also remain untouched.
+### DJI sidecars
 
-### Associated DJI sidecars
+Cleanup remains manifest-driven and sidecar-aware for recognized `.LRF`, `.SRT`, or other associated DJI files. Unknown files stay untouched.
 
-DJI cameras can create companion files such as `.LRF` preview files and `.SRT` telemetry files. Cleanup must be manifest-driven and sidecar-aware rather than deleting the whole DCIM tree.
-
-KontentManager's sidecar grouping/rollback behavior is a useful reference here. Recognized sidecars should travel with their parent clip through import and cleanup when appropriate; unknown/unrelated files stay on the card.
-
-### Example checkpoint
+Example:
 
 ```text
 123 / 123 imported files verified ✓
@@ -134,49 +159,4 @@ KontentManager's sidecar grouping/rollback behavior is a useful reference here. 
 [ Keep everything on card ]
 ```
 
-If the user chooses deletion, the app deletes only the verified source manifest (plus explicitly recognized associated sidecars when appropriate), then reports what remains on the card.
-
-A later full in-camera format can remain optional, but it is not required as the default cleanup path.
-
-## Step 6: Choose a project to prepare
-
-After cleanup, clip resolved should show the newly ingested projects and let the user explicitly start the next stage on one or more of them.
-
-Example:
-
-```text
-Christmas Eve      Personal   [ Prepare ]
-Christmas Lunch    Personal   [ Prepare ]
-Carabao            Client     [ Prepare ]
-New Year's Eve     Personal   [ Prepare ]
-
-[ Prepare All ]
-```
-
-This is a human checkpoint. Nothing downstream needs to auto-run merely because the card cleanup finished.
-
-### Reuse existing folder-based indexing behavior
-
-Do **not** copy the media again into a separate AI library.
-
-Omnishot already demonstrates the desired pattern:
-- link/watch one existing library folder on disk
-- index the videos in place
-- keep an ingest/index manifest mapping derived chunks back to the untouched source path
-- add/remove index entries when the watched source folder changes
-
-SynthCut similarly imports assets from absolute source paths and builds transcript/visual intelligence against those local media assets.
-
-clip resolved should adapt these existing patterns so `Prepare` means:
-
-```text
-Active Projects/Client/Carabao/<original media folder>
-        ↓
-register existing source paths
-        ↓
-build local derived indexes/analysis artifacts
-```
-
-It should **not** mean another source-media copy.
-
-The exact analysis performed after `Prepare` is intentionally not decided here; that is the next workflow stage to design.
+Non-destructive indexing/prep does not need to wait for this cleanup choice.
