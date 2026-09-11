@@ -138,8 +138,45 @@ If the user chooses deletion, the app deletes only the verified source manifest 
 
 A later full in-camera format can remain optional, but it is not required as the default cleanup path.
 
-## Human checkpoint after cleanup
+## Step 6: Choose a project to prepare
 
-The user is comfortable explicitly triggering the next major stage when a human checkpoint is useful.
+After cleanup, clip resolved should show the newly ingested projects and let the user explicitly start the next stage on one or more of them.
 
-No semantic slicing, Resolve organization, or creative analysis starts automatically from the cleanup action.
+Example:
+
+```text
+Christmas Eve      Personal   [ Prepare ]
+Christmas Lunch    Personal   [ Prepare ]
+Carabao            Client     [ Prepare ]
+New Year's Eve     Personal   [ Prepare ]
+
+[ Prepare All ]
+```
+
+This is a human checkpoint. Nothing downstream needs to auto-run merely because the card cleanup finished.
+
+### Reuse existing folder-based indexing behavior
+
+Do **not** copy the media again into a separate AI library.
+
+Omnishot already demonstrates the desired pattern:
+- link/watch one existing library folder on disk
+- index the videos in place
+- keep an ingest/index manifest mapping derived chunks back to the untouched source path
+- add/remove index entries when the watched source folder changes
+
+SynthCut similarly imports assets from absolute source paths and builds transcript/visual intelligence against those local media assets.
+
+clip resolved should adapt these existing patterns so `Prepare` means:
+
+```text
+Active Projects/Client/Carabao/<original media folder>
+        ↓
+register existing source paths
+        ↓
+build local derived indexes/analysis artifacts
+```
+
+It should **not** mean another source-media copy.
+
+The exact analysis performed after `Prepare` is intentionally not decided here; that is the next workflow stage to design.
