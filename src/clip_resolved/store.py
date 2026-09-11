@@ -68,6 +68,9 @@ class IndexStore:
         self.close()
 
     def upsert_asset(self, asset: MediaAsset) -> None:
+        # indexed_at is invalidated when the underlying source file changes.
+        # Old visual rows can remain briefly; visual_index_is_current() will not
+        # trust them and replace_visual_samples() deletes them atomically later.
         self.conn.execute(
             """
             INSERT INTO assets (
@@ -80,6 +83,11 @@ class IndexStore:
               width=excluded.width,
               height=excluded.height,
               has_audio=excluded.has_audio,
+              indexed_at=CASE
+                WHEN assets.size != excluded.size OR assets.mtime_ns != excluded.mtime_ns
+                THEN NULL
+                ELSE assets.indexed_at
+              END,
               size=excluded.size,
               mtime_ns=excluded.mtime_ns
             """,
