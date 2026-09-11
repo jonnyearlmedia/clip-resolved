@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "upstreams": [
+    {
+      "name": "SynthCut",
+      "repo": "https://github.com/Relo-video/SynthCut.git",
+      "commit": "96b1ca0e8b9935cc0d9561a3bc020f29bf9e88a0",
+      "directory": "external/SynthCut",
+      "license": "GPL-3.0-or-later",
+      "purpose": "source-direct CLIP embeddings/search and transcript implementation"
+    },
+    {
+      "name": "VideoHighlighter",
+      "repo": "https://github.com/Aseiel/VideoHighlighter.git",
+      "commit": "063e16416531679b98e39c7729c219e7ada362d9",
+      "directory": "external/VideoHighlighter",
+      "license": "AGPL-3.0",
+      "purpose": "candidate-region, framing, quality, and detector-routing implementation"
+    },
+    {
+      "name": "davinci-resolve-mcp",
+      "repo": "https://github.com/samuelgursky/davinci-resolve-mcp.git",
+      "commit": "f4cd0f90d11431278ef5a24474ddad9d4e483251",
+      "directory": "external/davinci-resolve-mcp",
+      "license": "MIT",
+      "purpose": "Resolve connection helpers, API-truth tests, and scripting implementation"
+    }
+  ]
+}
