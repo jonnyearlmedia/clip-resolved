@@ -108,6 +108,29 @@ We found 4 likely shooting sessions:
 Review / merge / split / name sessions
 ```
 
+### Group accounting invariant
+
+If the card contains **123 MP4 files**, the proposed groups must account for **all 123 files exactly once** before the user confirms the grouping.
+
+```text
+Group A: 31
+Group B: 28
+Group C: 42
+Group D: 22
+----------------
+Total:   123 / 123
+```
+
+Requirements:
+- no clip can silently disappear from all groups
+- no clip can exist in two groups at once
+- moving a clip from one group to another is a move, not a copy
+- the UI should always show the current accounted-for total
+- if the grouping engine is uncertain, clips may temporarily appear in an explicit **Unassigned** bucket rather than being guessed into the wrong event
+- final confirmation is blocked until every source MP4 is assigned exactly once
+
+The user must be able to correct grouping mistakes directly, ideally by selecting one or more clips and moving or dragging them between session groups. The goal is human verification of proposed groups, not manual organization from scratch.
+
 After session confirmation, each session can receive its own:
 
 - project/event name
