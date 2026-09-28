@@ -15,6 +15,7 @@ struct ContentView: View {
             Group {
                 switch store.selection {
                 case .ingest: IngestView(store: store)
+                case .chat: ChatView(store: store)
                 case .search: SearchView(store: store)
                 case .activity: ActivityView(store: store)
                 }

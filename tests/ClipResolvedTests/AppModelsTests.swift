@@ -11,6 +11,34 @@ final class AppModelsTests: XCTestCase {
         XCTAssertEqual(ProjectKind.personal.rawValue, "Personal")
     }
 
+    func testClaudeStructuredIntentDecodesWithMemory() throws {
+        let payload = #"{"is_error":false,"structured_output":{"message":"I will search the existing index.","action":"propose_selects","query":"food shots","timeline_name":"FOOD SHOTS SELECTS","search_mode":"Visual","memory_updates":[{"scope":"All projects","category":"Editing preference","content":"Use two-second pre-roll handles."}],"pre_handle_seconds":2,"post_handle_seconds":null,"minimum_duration_seconds":null}}"#
+        let intent = try ClaudeChatService.decodeIntent(Data(payload.utf8))
+
+        XCTAssertEqual(intent.action, .proposeSelects)
+        XCTAssertEqual(intent.query, "food shots")
+        XCTAssertEqual(intent.searchMode, .visual)
+        XCTAssertEqual(intent.memoryUpdates.count, 1)
+        XCTAssertEqual(intent.memoryUpdates.first?.scope, .global)
+        XCTAssertEqual(intent.memoryUpdates.first?.content, "Use two-second pre-roll handles.")
+        XCTAssertEqual(intent.preHandleSeconds, 2)
+    }
+
+    func testProjectMemoryDoesNotBecomeGlobal() throws {
+        let projectID = UUID()
+        let memory = ChatMemoryItem(
+            scope: .project,
+            projectID: projectID,
+            category: "Project fact",
+            content: "The final piece should foreground food and hospitality."
+        )
+        let encoded = try JSONEncoder().encode(memory)
+        let decoded = try JSONDecoder().decode(ChatMemoryItem.self, from: encoded)
+
+        XCTAssertEqual(decoded.scope, .project)
+        XCTAssertEqual(decoded.projectID, projectID)
+    }
+
     func testVerifiedOffloadCopiesAndPreservesSource() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let card = root.appendingPathComponent("card/DCIM", isDirectory: true)

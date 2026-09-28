@@ -2,6 +2,7 @@ import Foundation
 
 enum WorkspaceSection: String, CaseIterable, Identifiable {
     case ingest = "Ingest"
+    case chat = "Project Chat"
     case search = "Footage Search"
     case activity = "Activity"
 
@@ -9,6 +10,7 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .ingest: "externaldrive.badge.plus"
+        case .chat: "bubble.left.and.bubble.right"
         case .search: "sparkle.magnifyingglass"
         case .activity: "list.bullet.rectangle"
         }
@@ -21,7 +23,7 @@ enum ProjectKind: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum SearchMode: String, CaseIterable, Identifiable {
+enum SearchMode: String, Codable, CaseIterable, Identifiable {
     case visual = "Visual"
     case spoken = "Spoken words"
     var id: String { rawValue }
@@ -208,6 +210,131 @@ struct ActivityEntry: Identifiable, Hashable {
     let date = Date()
     let message: String
     let isError: Bool
+}
+
+enum ChatRole: String, Codable {
+    case user
+    case assistant
+}
+
+struct ChatEvidence: Codable, Hashable, Identifiable {
+    let sourcePath: String
+    let start: Double
+    let end: Double
+    let score: Double
+    let transcript: String?
+
+    var id: String { "\(sourcePath)-\(start)-\(end)" }
+    var fileName: String { URL(fileURLWithPath: sourcePath).lastPathComponent }
+}
+
+struct ChatMessage: Codable, Hashable, Identifiable {
+    let id: UUID
+    let projectID: UUID
+    let role: ChatRole
+    let text: String
+    let evidence: [ChatEvidence]
+    let createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        projectID: UUID,
+        role: ChatRole,
+        text: String,
+        evidence: [ChatEvidence] = [],
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.projectID = projectID
+        self.role = role
+        self.text = text
+        self.evidence = evidence
+        self.createdAt = createdAt
+    }
+}
+
+enum ChatMemoryScope: String, Codable, CaseIterable, Identifiable {
+    case global = "All projects"
+    case project = "This project"
+
+    var id: String { rawValue }
+}
+
+struct ChatMemoryItem: Codable, Hashable, Identifiable {
+    let id: UUID
+    let scope: ChatMemoryScope
+    let projectID: UUID?
+    let category: String
+    let content: String
+    let createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        scope: ChatMemoryScope,
+        projectID: UUID?,
+        category: String,
+        content: String,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.scope = scope
+        self.projectID = scope == .project ? projectID : nil
+        self.category = category
+        self.content = content
+        self.createdAt = createdAt
+    }
+}
+
+struct ClaudeMemoryUpdate: Codable, Equatable {
+    let scope: ChatMemoryScope
+    let category: String
+    let content: String
+}
+
+enum ClaudeAction: String, Codable {
+    case answer
+    case searchVisual = "search_visual"
+    case searchTranscript = "search_transcript"
+    case proposeSelects = "propose_selects"
+    case prepareResolve = "prepare_resolve"
+}
+
+struct ClaudeIntent: Codable, Equatable {
+    let message: String
+    let action: ClaudeAction
+    let query: String?
+    let timelineName: String?
+    let searchMode: SearchMode?
+    let memoryUpdates: [ClaudeMemoryUpdate]
+    let preHandleSeconds: Double?
+    let postHandleSeconds: Double?
+    let minimumDurationSeconds: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case message, action, query
+        case timelineName = "timeline_name"
+        case searchMode = "search_mode"
+        case memoryUpdates = "memory_updates"
+        case preHandleSeconds = "pre_handle_seconds"
+        case postHandleSeconds = "post_handle_seconds"
+        case minimumDurationSeconds = "minimum_duration_seconds"
+    }
+}
+
+enum PendingChatActionKind: String, Codable {
+    case createSelects
+    case prepareResolve
+}
+
+struct PendingChatAction: Identifiable, Hashable {
+    let id = UUID()
+    let projectID: UUID
+    let kind: PendingChatActionKind
+    let title: String
+    let query: String?
+    let timelineName: String?
+    let searchMode: SearchMode?
+    let rangeCount: Int
 }
 
 extension TimeInterval {

@@ -31,6 +31,11 @@ struct ClipResolvedApp: App {
                     store.selection = .search
                 }
                 .keyboardShortcut("f", modifiers: [.command])
+
+                Button("Project Chat") {
+                    store.selection = .chat
+                }
+                .keyboardShortcut("j", modifiers: [.command])
             }
         }
 

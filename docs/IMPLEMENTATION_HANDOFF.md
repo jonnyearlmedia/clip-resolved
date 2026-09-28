@@ -131,7 +131,11 @@ Then it:
 
 ### `Sources/ClipResolved/`
 
-Native SwiftUI app with Disk Arbitration card detection, scan/group/name UI, SHA-256 verified ingest using SD-Offload primitives, persistent project library, visual/transcript search, and Resolve SELECTS actions.
+Native SwiftUI app with Disk Arbitration card detection, scan/group/name UI, SHA-256 verified ingest using SD-Offload primitives, persistent project library, visual/transcript search, Claude-backed project chat, locally persisted global/project memory, and confirmed Resolve SELECTS actions.
+
+`ClaudeChatService` invokes the user's authenticated Claude Code installation with tools disabled and requests a structured intent. The app, not Claude, executes searches and Resolve actions. Claude receives text context and timestamp evidence, not raw media. Resolve mutations stay behind a visible confirmation step.
+
+Explicit conversational changes to pre-handle, post-handle, and minimum-range duration are bounded and written to the app's existing persisted settings before the requested search runs.
 
 Build and launch it with:
 

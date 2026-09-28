@@ -91,6 +91,22 @@ The system should support pre/post handles, minimum range duration, and later co
 
 Reuse existing Resolve wrappers/MCP projects when useful. UI automation is a fallback for genuine API gaps, not the default.
 
+### Project chat uses a permissioned local-tool boundary
+
+Status: accepted
+Date: 2026-09-28
+
+Decision:
+Project Chat uses the Claude Code subscription already authenticated on the Mac to interpret conversation into a small structured action set. Claude has no tools inside this invocation. clip resolved executes searches through its local footage index and keeps every Resolve mutation behind an explicit confirmation step.
+
+Chat history and memory persist locally. Memory is visible, editable, and separated into global preferences and project-specific facts/goals. The assistant may save only durable information explicitly stated by the user, never inferred identity or secrets.
+
+Why:
+This provides a Wideframe-like footage conversation while keeping raw media local, preserving deterministic source/timestamp evidence, and making automation inspectable.
+
+Consequences:
+The chat provider remains replaceable. Claude receives text project context and search evidence but not original video files. Search can happen directly; Resolve changes require user confirmation.
+
 ## Rejected assumptions
 
 ### "Import everything, then manually search for clips"

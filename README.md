@@ -4,7 +4,7 @@
 
 The goal is not to replace Resolve. The goal is to remove repetitive work between plugging in a camera card and actually editing, while giving Resolve local semantic footage intelligence that can find, organize, and prepare useful moments from source media.
 
-> **Current status:** the local macOS app now covers card/folder discovery, shoot confirmation, checksum-verified ingest, project creation, visual indexing, timed transcripts, arbitrary search, and source-linked Resolve SELECTS.
+> **Current status:** the local macOS app covers card/folder discovery, shoot confirmation, checksum-verified ingest, project creation, visual indexing, timed transcripts, arbitrary search, persistent project chat/memory, and source-linked Resolve SELECTS.
 
 ## Core target
 
@@ -62,6 +62,21 @@ The bootstrap script pulls exact inspected upstream commits for:
 These are working code dependencies, not merely references.
 
 The app bundle is created at `dist/Clip Resolved.app`. Keep DaVinci Resolve Studio open on the saved project you intend to change before creating SELECTS. The app refuses to modify an unsaved Resolve project.
+
+## Project Chat and memory
+
+The **Project Chat** workspace uses the Claude Code installation already authenticated on this Mac. A Claude Max subscription works through Claude Code; no Anthropic API key is required by Clip Resolved.
+
+Claude interprets the request into a narrow structured action. Clip Resolved performs the actual local index search and Resolve operation through its existing deterministic backends. Claude receives project status, saved preferences, recent conversation text, and timestamp evidence returned by the local search. It does not receive the original MP4 files.
+
+Chat history and memory survive app relaunches. Memory is visible and editable, with separate scopes for:
+
+- **All projects** — durable editing/workflow preferences
+- **This project** — project goals, client requirements, and known facts
+
+Explicit requests to change pre-roll, post-roll, or minimum SELECTS duration update the same persisted defaults shown in Settings, so remembered operational preferences affect later searches and timelines.
+
+Searches run immediately. Any action that changes Resolve is shown as a pending action and requires an explicit **Confirm in Resolve** click. The app does not use Claude's own tools or let it directly modify files or Resolve.
 
 ## CLI equivalent
 
