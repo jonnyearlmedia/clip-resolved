@@ -283,12 +283,20 @@ struct ChatEvidence: Codable, Hashable, Identifiable {
     var fileName: String { URL(fileURLWithPath: sourcePath).lastPathComponent }
 }
 
+struct ChatSuggestedAction: Codable, Hashable {
+    let query: String
+    let timelineName: String
+    let searchMode: SearchMode
+    let rangeCount: Int
+}
+
 struct ChatMessage: Codable, Hashable, Identifiable {
     let id: UUID
     let projectID: UUID
     let role: ChatRole
     let text: String
     let evidence: [ChatEvidence]
+    let suggestedAction: ChatSuggestedAction?
     let createdAt: Date
 
     init(
@@ -297,6 +305,7 @@ struct ChatMessage: Codable, Hashable, Identifiable {
         role: ChatRole,
         text: String,
         evidence: [ChatEvidence] = [],
+        suggestedAction: ChatSuggestedAction? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -304,6 +313,7 @@ struct ChatMessage: Codable, Hashable, Identifiable {
         self.role = role
         self.text = text
         self.evidence = evidence
+        self.suggestedAction = suggestedAction
         self.createdAt = createdAt
     }
 }

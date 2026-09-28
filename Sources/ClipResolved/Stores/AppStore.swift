@@ -84,8 +84,9 @@ final class AppStore {
         postHandle = UserDefaults.standard.object(forKey: "postHandle") as? Double ?? 3.0
         minimumDuration = UserDefaults.standard.object(forKey: "minimumDuration") as? Double ?? 6.0
         projects = Self.loadProjects()
-        chatMessages = Self.loadChatMessages()
+        chatMessages = Self.backfillSuggestedActions(Self.loadChatMessages())
         chatMemories = Self.loadChatMemories()
+        saveChatMessages()
         if projects.isEmpty {
             let osaka = "/Volumes/Extreme SSD/ACTIVE PROJECTS/OSAKA"
             if FileManager.default.fileExists(atPath: osaka) {
@@ -316,7 +317,6 @@ final class AppStore {
                 history: Array(history),
                 memories: selectedProjectMemories
             )
-            appendChat(projectID: project.id, role: .assistant, text: intent.message)
             let changedPreferences = applyPreferenceUpdates(intent)
             if !changedPreferences.isEmpty {
                 appendChat(
@@ -336,20 +336,33 @@ final class AppStore {
 
             switch intent.action {
             case .answer:
-                break
+                appendChat(projectID: project.id, role: .assistant, text: intent.message)
             case .searchVisual:
-                await runChatSearch(project: project, query: intent.query ?? message, mode: .visual, proposeSelects: false, timelineName: nil)
+                await runChatSearch(
+                    project: project,
+                    query: intent.query ?? message,
+                    displayQuery: message,
+                    mode: .visual,
+                    timelineName: intent.timelineName
+                )
             case .searchTranscript:
-                await runChatSearch(project: project, query: intent.query ?? message, mode: .spoken, proposeSelects: false, timelineName: nil)
+                await runChatSearch(
+                    project: project,
+                    query: intent.query ?? message,
+                    displayQuery: message,
+                    mode: .spoken,
+                    timelineName: intent.timelineName
+                )
             case .proposeSelects:
                 await runChatSearch(
                     project: project,
                     query: intent.query ?? message,
+                    displayQuery: message,
                     mode: intent.searchMode ?? .visual,
-                    proposeSelects: true,
                     timelineName: intent.timelineName
                 )
             case .proposeSmartSelects:
+                appendChat(projectID: project.id, role: .assistant, text: intent.message)
                 pendingChatAction = PendingChatAction(
                     projectID: project.id,
                     kind: .createSmartSelects,
@@ -361,6 +374,7 @@ final class AppStore {
                     rangeCount: 0
                 )
             case .prepareResolve:
+                appendChat(projectID: project.id, role: .assistant, text: intent.message)
                 pendingChatAction = PendingChatAction(
                     projectID: project.id,
                     kind: .prepareResolve,
@@ -385,8 +399,8 @@ final class AppStore {
     private func runChatSearch(
         project: ProjectRecord,
         query searchQuery: String,
+        displayQuery: String,
         mode: SearchMode,
-        proposeSelects: Bool,
         timelineName requestedName: String?
     ) async {
         do {
@@ -413,7 +427,11 @@ final class AppStore {
             query = searchQuery
             searchMode = mode
             moments = results
-            timelineName = normalizedTimelineName(requestedName, query: searchQuery)
+            timelineName = normalizedChatTimelineName(
+                requestedName,
+                displayQuery: displayQuery,
+                fallbackQuery: searchQuery
+            )
             let evidence = results.prefix(12).map {
                 ChatEvidence(
                     sourcePath: $0.sourcePath,
@@ -429,12 +447,28 @@ final class AppStore {
                     ? "There are no timed transcripts for this project yet. Run Transcribe Audio, then ask again."
                     : "I found no sufficiently relevant handled ranges for “\(searchQuery)”. Try different wording or lower the search threshold."
             } else {
-                summary = "I found \(results.count) handled source range\(results.count == 1 ? "" : "s") for “\(searchQuery)”. The strongest timestamped evidence is below."
+                let sourceCount = Set(results.map(\.sourcePath)).count
+                let pre = preHandle.formatted(.number.precision(.fractionLength(0...1)))
+                let post = postHandle.formatted(.number.precision(.fractionLength(0...1)))
+                let minimum = minimumDuration.formatted(.number.precision(.fractionLength(0...1)))
+                summary = "I searched the existing local index and found \(results.count) handled source range\(results.count == 1 ? "" : "s") across \(sourceCount) original clip\(sourceCount == 1 ? "" : "s") for “\(displayQuery)”. These use \(pre)s before, \(post)s after, and a \(minimum)s minimum. Review the strongest timestamped matches below, or create \(timelineName) plus its complete NOT SELECTED review timeline in Resolve."
             }
-            appendChat(projectID: project.id, role: .assistant, text: summary, evidence: Array(evidence))
+            let suggestedAction = results.isEmpty ? nil : ChatSuggestedAction(
+                query: searchQuery,
+                timelineName: timelineName,
+                searchMode: mode,
+                rangeCount: results.count
+            )
+            appendChat(
+                projectID: project.id,
+                role: .assistant,
+                text: summary,
+                evidence: Array(evidence),
+                suggestedAction: suggestedAction
+            )
             log("Claude search — \(searchQuery): \(results.count) handled moment(s)")
 
-            if proposeSelects && !results.isEmpty {
+            if !results.isEmpty {
                 pendingChatAction = PendingChatAction(
                     projectID: project.id,
                     kind: .createSelects,
@@ -545,6 +579,20 @@ final class AppStore {
         appendChat(projectID: action.projectID, role: .assistant, text: "Cancelled. Resolve was not changed.")
     }
 
+    func stageSuggestedChatAction(_ suggested: ChatSuggestedAction, projectID: UUID) {
+        guard projects.contains(where: { $0.id == projectID }) else { return }
+        pendingChatAction = PendingChatAction(
+            projectID: projectID,
+            kind: .createSelects,
+            title: "Create \(suggested.timelineName) in Resolve",
+            query: suggested.query,
+            timelineName: suggested.timelineName,
+            searchMode: suggested.searchMode,
+            profile: nil,
+            rangeCount: suggested.rangeCount
+        )
+    }
+
     func clearSelectedProjectChat() {
         guard let projectID = selectedProject?.id else { return }
         chatMessages.removeAll { $0.projectID == projectID }
@@ -642,10 +690,17 @@ final class AppStore {
         projectID: UUID,
         role: ChatRole,
         text: String,
-        evidence: [ChatEvidence] = []
+        evidence: [ChatEvidence] = [],
+        suggestedAction: ChatSuggestedAction? = nil
     ) {
         chatMessages.append(
-            ChatMessage(projectID: projectID, role: role, text: text, evidence: evidence)
+            ChatMessage(
+                projectID: projectID,
+                role: role,
+                text: text,
+                evidence: evidence,
+                suggestedAction: suggestedAction
+            )
         )
         saveChatMessages()
     }
@@ -656,6 +711,32 @@ final class AppStore {
             return cleaned.uppercased().hasSuffix("SELECTS") ? cleaned : "\(cleaned) SELECTS"
         }
         return defaultTimelineName(query)
+    }
+
+    private func normalizedChatTimelineName(
+        _ requested: String?,
+        displayQuery: String,
+        fallbackQuery: String
+    ) -> String {
+        let supplied = requested?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !supplied.isEmpty {
+            return normalizedTimelineName(supplied, query: fallbackQuery)
+        }
+
+        var cleaned = displayQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let leadingRequest = #"(?i)^(please\s+)?(find|show\s+me|give\s+me|search\s+for|look\s+for)\s+"#
+        cleaned = cleaned.replacingOccurrences(
+            of: leadingRequest,
+            with: "",
+            options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(
+            of: #"(?i)\s+(in|from)\s+(this|the)\s+footage\s*[?.!]*$"#,
+            with: "",
+            options: .regularExpression
+        )
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        return defaultTimelineName(cleaned.isEmpty ? fallbackQuery : cleaned)
     }
 
     func createSelects() async {
@@ -802,6 +883,49 @@ final class AppStore {
     private static func loadChatMessages() -> [ChatMessage] {
         guard let data = try? Data(contentsOf: chatMessagesURL) else { return [] }
         return (try? JSONDecoder().decode([ChatMessage].self, from: data)) ?? []
+    }
+
+    private static func backfillSuggestedActions(_ messages: [ChatMessage]) -> [ChatMessage] {
+        var lastUserMessage: [UUID: String] = [:]
+        return messages.map { message in
+            if message.role == .user {
+                lastUserMessage[message.projectID] = message.text
+                return message
+            }
+            guard message.suggestedAction == nil,
+                  !message.evidence.isEmpty,
+                  let request = lastUserMessage[message.projectID] else { return message }
+
+            var phrase = request.trimmingCharacters(in: .whitespacesAndNewlines)
+            phrase = phrase.replacingOccurrences(
+                of: #"(?i)^(please\s+)?(find|show\s+me|give\s+me|search\s+for|look\s+for)\s+"#,
+                with: "",
+                options: .regularExpression
+            )
+            phrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+            if phrase.isEmpty { phrase = request }
+            let words = phrase.uppercased().map { $0.isLetter || $0.isNumber ? $0 : " " }
+            let timeline = String(words).split(separator: " ").joined(separator: " ") + " SELECTS"
+            let rangeCount = message.text
+                .components(separatedBy: CharacterSet.decimalDigits.inverted)
+                .compactMap(Int.init)
+                .first ?? message.evidence.count
+            let suggested = ChatSuggestedAction(
+                query: phrase,
+                timelineName: timeline,
+                searchMode: message.evidence.contains { $0.transcript != nil } ? .spoken : .visual,
+                rangeCount: rangeCount
+            )
+            return ChatMessage(
+                id: message.id,
+                projectID: message.projectID,
+                role: message.role,
+                text: message.text,
+                evidence: message.evidence,
+                suggestedAction: suggested,
+                createdAt: message.createdAt
+            )
+        }
     }
 
     private static func loadChatMemories() -> [ChatMemoryItem] {

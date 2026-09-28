@@ -4,6 +4,7 @@ struct SearchView: View {
     @Bindable var store: AppStore
     @State private var showAddProject = false
     @State private var showSmartSelectsConfirmation = false
+    @State private var previewMoment: MomentResult?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -78,6 +79,16 @@ struct SearchView: View {
                     )
                 } else {
                     Table(store.moments) {
+                        TableColumn("Preview") { moment in
+                            Button {
+                                previewMoment = moment
+                            } label: {
+                                Image(systemName: "play.rectangle.fill")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Preview this handled source range")
+                        }
+                        .width(55)
                         TableColumn("Source") { moment in Text(moment.fileName).lineLimit(1) }
                         TableColumn("In") { moment in Text((moment.handledStart ?? moment.detectedStart).editorTimecode).monospacedDigit() }
                             .width(90)
@@ -110,6 +121,17 @@ struct SearchView: View {
         .navigationTitle("Footage Search")
         .sheet(isPresented: $showAddProject) {
             AddProjectView(store: store, isPresented: $showAddProject)
+        }
+        .sheet(item: $previewMoment) { moment in
+            FootagePreviewView(
+                evidence: ChatEvidence(
+                    sourcePath: moment.sourcePath,
+                    start: moment.handledStart ?? moment.detectedStart,
+                    end: moment.handledEnd ?? moment.detectedEnd,
+                    score: moment.score,
+                    transcript: moment.transcript
+                )
+            )
         }
         .confirmationDialog(
             "Build the restaurant SELECTS package?",

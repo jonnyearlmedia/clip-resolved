@@ -79,6 +79,8 @@ Explicit requests to change pre-roll, post-roll, or minimum SELECTS duration upd
 
 Searches run immediately. Any action that changes Resolve is shown as a pending action and requires an explicit **Confirm in Resolve** click. The app does not use Claude's own tools or let it directly modify files or Resolve.
 
+Visual search results are reviewable inside the app, not just filenames and timestamps. Project Chat shows local thumbnails for the strongest returned ranges. Clicking a result opens the original MP4 at the handled in point, plays until the handled out point, and leaves the full source available for scrubbing. Each successful search keeps a durable, professionally named **Create … in Resolve** action, including after relaunch.
+
 ## CLI equivalent
 
 ```bash

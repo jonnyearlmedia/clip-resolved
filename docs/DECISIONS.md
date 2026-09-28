@@ -107,6 +107,8 @@ This provides a Wideframe-like footage conversation while keeping raw media loca
 Consequences:
 The chat provider remains replaceable. Claude receives text project context and search evidence but not original video files. Search can happen directly; Resolve changes require user confirmation.
 
+Search evidence must be visually reviewable. A successful visual search shows thumbnails and opens the original local MP4 at the handled range for playback and surrounding-context scrubbing. It also persists a named Resolve action with the conversation so relaunching the app does not strand a timestamp-only result. A user should not need to know the distinction between "find" and "make a timeline" to receive the obvious next action.
+
 ### Every SELECTS timeline has a complete review complement
 
 Status: accepted

@@ -50,6 +50,15 @@ final class AppModelsTests: XCTestCase {
         XCTAssertEqual(decoded.projectID, projectID)
     }
 
+    func testOlderPersistedChatWithoutSuggestedActionStillDecodes() throws {
+        let projectID = UUID()
+        let messageID = UUID()
+        let payload = #"{"id":"\#(messageID.uuidString)","projectID":"\#(projectID.uuidString)","role":"assistant","text":"Found matches.","evidence":[],"createdAt":0}"#
+        let decoded = try JSONDecoder().decode(ChatMessage.self, from: Data(payload.utf8))
+
+        XCTAssertNil(decoded.suggestedAction)
+    }
+
     func testVerifiedOffloadCopiesAndPreservesSource() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let card = root.appendingPathComponent("card/DCIM", isDirectory: true)

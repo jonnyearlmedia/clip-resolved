@@ -4,6 +4,7 @@ struct ChatView: View {
     @Bindable var store: AppStore
     @State private var draft = ""
     @State private var showMemory = false
+    @State private var previewEvidence: ChatEvidence?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,6 +26,9 @@ struct ChatView: View {
         .navigationTitle("Project Chat")
         .sheet(isPresented: $showMemory) {
             MemoryView(store: store, isPresented: $showMemory)
+        }
+        .sheet(item: $previewEvidence) { evidence in
+            FootagePreviewView(evidence: evidence)
         }
     }
 
@@ -74,7 +78,13 @@ struct ChatView: View {
                         welcome
                     } else {
                         ForEach(store.selectedProjectMessages) { message in
-                            ChatMessageView(message: message)
+                            ChatMessageView(
+                                message: message,
+                                preview: { evidence in previewEvidence = evidence },
+                                stageAction: { action in
+                                    store.stageSuggestedChatAction(action, projectID: message.projectID)
+                                }
+                            )
                                 .id(message.id)
                         }
                     }
@@ -185,6 +195,8 @@ struct ChatView: View {
 
 private struct ChatMessageView: View {
     let message: ChatMessage
+    let preview: (ChatEvidence) -> Void
+    let stageAction: (ChatSuggestedAction) -> Void
 
     var body: some View {
         HStack {
@@ -197,18 +209,30 @@ private struct ChatMessageView: View {
                 if !message.evidence.isEmpty {
                     VStack(spacing: 6) {
                         ForEach(message.evidence) { evidence in
-                            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                Image(systemName: evidence.transcript == nil ? "film" : "waveform")
-                                    .foregroundStyle(.secondary)
-                                Text(evidence.fileName)
-                                    .lineLimit(1)
-                                Spacer()
-                                Text("\(evidence.start.editorTimecode) – \(evidence.end.editorTimecode)")
-                                    .font(.system(.caption, design: .monospaced))
-                                Text(evidence.score, format: .number.precision(.fractionLength(3)))
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundStyle(.secondary)
+                            Button {
+                                preview(evidence)
+                            } label: {
+                                HStack(alignment: .center, spacing: 10) {
+                                    EvidenceThumbnailView(evidence: evidence)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(evidence.fileName)
+                                            .lineLimit(1)
+                                            .foregroundStyle(.primary)
+                                        Text("\(evidence.start.editorTimecode) – \(evidence.end.editorTimecode)")
+                                            .font(.system(.caption, design: .monospaced))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Text(evidence.score, format: .number.precision(.fractionLength(3)))
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                    Image(systemName: "play.circle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(.tint)
+                                }
+                                .contentShape(Rectangle())
                             }
+                            .buttonStyle(.plain)
                             .help(evidence.sourcePath)
 
                             if let transcript = evidence.transcript, !transcript.isEmpty {
@@ -222,6 +246,15 @@ private struct ChatMessageView: View {
                     }
                     .padding(10)
                     .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                }
+
+                if let action = message.suggestedAction {
+                    Button {
+                        stageAction(action)
+                    } label: {
+                        Label("Create \(action.timelineName) in Resolve", systemImage: "timeline.selection")
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
 
                 Text(message.createdAt, style: .time)
@@ -248,16 +281,20 @@ private struct PendingActionView: View {
         VStack(alignment: .leading, spacing: 10) {
             Label(action.title, systemImage: "checkmark.shield")
                 .font(.headline)
-            if action.rangeCount > 0 {
+            switch action.kind {
+            case .createSelects:
                 Text("This will append \(action.rangeCount) handled ranges to the main SELECTS and create a NOT SELECTED timeline containing the exact source-frame remainder. No new video files will be rendered.")
                     .foregroundStyle(.secondary)
-            } else {
+            case .createSmartSelects:
+                Text("This creates 00 ALL RAW FOOTAGE STRINGOUT, seven professionally named restaurant category timelines, and one ALL FOOTAGE NOT SELECTED REVIEW timeline. Every item references the original indexed MP4s.")
+                    .foregroundStyle(.secondary)
+            case .prepareResolve:
                 Text("This will connect to the open saved Resolve project, import originals, and create the required bins.")
                     .foregroundStyle(.secondary)
             }
             HStack {
                 Button("Cancel") { store.cancelPendingChatAction() }
-                Button("Confirm in Resolve") {
+                Button(confirmButtonTitle) {
                     Task { await store.confirmPendingChatAction() }
                 }
                 .buttonStyle(.borderedProminent)
@@ -267,6 +304,14 @@ private struct PendingActionView: View {
         .background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(.orange.opacity(0.35)))
         .frame(maxWidth: 700)
+    }
+
+    private var confirmButtonTitle: String {
+        switch action.kind {
+        case .createSelects: "Create SELECTS in Resolve"
+        case .createSmartSelects: "Create Complete Package"
+        case .prepareResolve: "Prepare Resolve Project"
+        }
     }
 }
 

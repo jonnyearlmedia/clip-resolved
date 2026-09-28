@@ -80,3 +80,17 @@ Wideframe-level behavior is the target experience:
 VideoHighlighter's region-building/quality logic and SynthCut's local semantic/transcript/search implementations are building blocks toward this benchmark, not the final ceiling.
 
 Do not reduce clip resolved to CLIP category tagging. The end product needs multimodal footage reasoning and on-demand SELECTS generation.
+
+## Review experience requirements
+
+A text list of filenames and timecodes is not a complete footage-chat experience. Search results must let the editor:
+
+- see a representative frame from each returned range
+- play the original source beginning at that range
+- scrub surrounding source context
+- understand which query or transcript evidence caused the match
+- keep or reject individual ranges before materializing a collection
+- refine the request conversationally without losing the prior result set
+- retain the result and its named NLE action after app relaunch
+
+Current implementation provides thumbnails, handled-range playback with source-context scrubbing, persisted result evidence, and durable Resolve actions. Remaining benchmark work includes individual include/exclude and in/out adjustment, cross-query collections, local visual descriptions explaining matches, find-similar from a chosen frame, and richer multimodal interview reasoning.

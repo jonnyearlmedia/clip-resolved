@@ -138,6 +138,8 @@ Native SwiftUI app with Disk Arbitration card detection, scan/group/name UI, SHA
 
 `ClaudeChatService` invokes the user's authenticated Claude Code installation with tools disabled and requests a structured intent. The app, not Claude, executes searches and Resolve actions. Claude receives text context and timestamp evidence, not raw media. Resolve mutations stay behind a visible confirmation step.
 
+Project Chat search evidence includes AVFoundation-generated thumbnails and an AVKit player that opens the original file at the handled in point and pauses at the handled out point. The user can scrub the complete original for context. Successful searches persist their query, editorial timeline name, search mode, and range count so the Resolve action remains available after relaunch. Older saved timestamp-only conversations are migrated locally on load.
+
 Explicit conversational changes to pre-handle, post-handle, and minimum-range duration are bounded and written to the app's existing persisted settings before the requested search runs.
 
 Build and launch it with:
