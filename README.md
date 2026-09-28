@@ -4,7 +4,7 @@
 
 The goal is not to replace Resolve. The goal is to remove repetitive work between plugging in a camera card and actually editing, while giving Resolve local semantic footage intelligence that can find, organize, and prepare useful moments from source media.
 
-> **Current status: implementation has started. A first local vertical slice now exists for source indexing, semantic search, handled moment creation, and Resolve SELECTS timeline generation.**
+> **Current status:** the local macOS app now covers card/folder discovery, shoot confirmation, checksum-verified ingest, project creation, visual indexing, timed transcripts, arbitrary search, and source-linked Resolve SELECTS.
 
 ## Core target
 
@@ -21,23 +21,24 @@ That means clip resolved should support both automatic initial organization and 
 
 without rebuilding the full footage corpus for every new query.
 
-## Current implemented vertical slice
+## Implemented workflow
 
 ```text
-local source folder
-  -> ffprobe metadata
-  -> SynthCut actual CLIP image embeddings
-  -> persistent SQLite visual index
-  -> arbitrary text query using SynthCut actual text embeddings
-  -> VideoHighlighter actual region-building functions
-  -> clip-resolved editorial handles
-  -> Resolve MCP actual connection helper
-  -> DaVinci Resolve SELECTS timeline via exact source ranges
+camera card or existing footage folder
+  -> read-only scan + temporal shoot proposals
+  -> user naming/classification/merge/split confirmation
+  -> SHA-256 copy + uncached destination re-read + durable manifest
+  -> final project Media/Osmo originals
+  -> live Resolve project + minimal bins + portable .drp snapshot
+  -> SynthCut CLIP visual index and optional SynthCut/Whisper transcripts
+  -> arbitrary later visual or spoken-word queries
+  -> VideoHighlighter region grouping + configurable handles
+  -> DaVinci Resolve SELECTS timeline with exact original source ranges
 ```
 
 No detected select is rendered into a replacement MP4.
 
-## Quick start for Claude Code / Codex / local development
+## Run the Mac app
 
 Read [`AGENTS.md`](AGENTS.md) first.
 
@@ -47,6 +48,7 @@ Then:
 bash scripts/bootstrap_upstreams.sh
 source .venv/bin/activate
 clip-resolved doctor --deep
+./script/build_and_run.sh
 ```
 
 The bootstrap script pulls exact inspected upstream commits for:
@@ -54,10 +56,14 @@ The bootstrap script pulls exact inspected upstream commits for:
 - `Relo-video/SynthCut`
 - `Aseiel/VideoHighlighter`
 - `samuelgursky/davinci-resolve-mcp`
+- `SoCloseSociety/kontentmanager`
+- `t0nyz0/SD-Offload`
 
 These are working code dependencies, not merely references.
 
-Example local test:
+The app bundle is created at `dist/Clip Resolved.app`. Keep DaVinci Resolve Studio open on the saved project you intend to change before creating SELECTS. The app refuses to modify an unsaved Resolve project.
+
+## CLI equivalent
 
 ```bash
 clip-resolved index \
@@ -77,24 +83,17 @@ clip-resolved selects \
   "all the luxury cars"
 ```
 
-The final command changes the currently open Resolve project and should first be tested in a disposable project.
+Optional embedded-audio transcription:
 
-## Product direction
+```bash
+clip-resolved transcribe --project-root "/path/to/Test Project" --source "/path/to/Test Project/Media/Osmo"
+clip-resolved transcript-search --project-root "/path/to/Test Project" "welcome to the event"
+clip-resolved transcript-selects --project-root "/path/to/Test Project" "welcome to the event"
+```
 
-The complete product still includes:
+The `index` command runs once per source change. New search wording does not re-index footage. SELECTS reference original MP4s; no replacement video is rendered.
 
-1. Camera-card detection and safe ingest
-2. Mixed-card temporal grouping and user confirmation
-3. Verified offload into the final portable project root
-4. Local multimodal footage analysis and indexing
-5. Detection of useful moments inside long source clips
-6. Expansion of moments with editorial handles
-7. Shoot-specific initial SELECTS timelines
-8. Arbitrary later semantic/transcript queries
-9. Resolve-side search/selects companion UI
-10. Safe project portability/relink/archive behavior
-
-DaVinci Resolve remains the editing environment.
+DaVinci Resolve remains the editing environment. Clip Resolved prepares originals, indexes, handled source ranges, and auxiliary SELECTS; it does not replace the NLE.
 
 ## OSS-first rule
 
@@ -107,8 +106,8 @@ Current major upstream implementations include:
 - [SynthCut](https://github.com/Relo-video/SynthCut) for local semantic video intelligence and transcript/search pieces
 - [VideoHighlighter](https://github.com/Aseiel/VideoHighlighter) for useful-moment region construction, framing, quality, and detection logic
 - [DaVinci Resolve MCP](https://github.com/samuelgursky/davinci-resolve-mcp) for tested Resolve scripting/control
-- [KontentManager](https://github.com/SoCloseSociety/kontentmanager) for later verified ingest/card workflow reuse
-- [SD-Offload](https://github.com/t0nyz0/SD-Offload) for later safe card-cleanup logic
+- [KontentManager](https://github.com/SoCloseSociety/kontentmanager) for media/sidecar recognition during card scans
+- [SD-Offload](https://github.com/t0nyz0/SD-Offload) for Disk Arbitration card detection, SHA-256 I/O, and crash-safe journal primitives
 
 Wideframe is the product-quality benchmark for footage understanding, not a source-code dependency.
 
@@ -125,15 +124,10 @@ Wideframe is the product-quality benchmark for footage understanding, not a sour
 - [`docs/ASSEMBLY_STRATEGY.md`](docs/ASSEMBLY_STRATEGY.md) — aggressive OSS reuse strategy
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — broader architecture
 
-## What still requires Jonny's Mac
+## Safety boundaries
 
-This environment cannot run his local Resolve instance or real Osmo footage. The next local session needs to validate:
-
-- semantic retrieval quality on actual footage
-- indexing throughput / RAM pressure
-- VideoHighlighter region grouping quality
-- Resolve source-frame boundary behavior
-- direct Media Pool path matching/import behavior
-- the first real generated SELECTS timeline
-
-After that test, tune from actual misses and false positives instead of adding more theory.
+- Camera/card sources are read-only during scanning, indexing, and normal ingest.
+- A destination file is accepted only after SHA-256 copy and destination re-read verification.
+- Unknown card files are ignored and preserved.
+- Resolve mutations stop on an unsaved project or frame-rate mismatch.
+- Card erasure is not automatic. The current app deliberately leaves source media intact.

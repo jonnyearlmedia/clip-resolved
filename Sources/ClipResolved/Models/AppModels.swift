@@ -1,0 +1,221 @@
+import Foundation
+
+enum WorkspaceSection: String, CaseIterable, Identifiable {
+    case ingest = "Ingest"
+    case search = "Footage Search"
+    case activity = "Activity"
+
+    var id: String { rawValue }
+    var symbol: String {
+        switch self {
+        case .ingest: "externaldrive.badge.plus"
+        case .search: "sparkle.magnifyingglass"
+        case .activity: "list.bullet.rectangle"
+        }
+    }
+}
+
+enum ProjectKind: String, Codable, CaseIterable, Identifiable {
+    case personal = "Personal"
+    case client = "Client"
+    var id: String { rawValue }
+}
+
+enum SearchMode: String, CaseIterable, Identifiable {
+    case visual = "Visual"
+    case spoken = "Spoken words"
+    var id: String { rawValue }
+}
+
+struct ScannedFile: Codable, Hashable, Identifiable {
+    let path: String
+    let relativePath: String
+    let groupKey: String
+    let kind: String
+    let size: Int64
+    let captureTime: String
+    let duration: Double
+    let fps: Double
+    let width: Int
+    let height: Int
+    let hasAudio: Bool
+
+    var id: String { path }
+
+    enum CodingKeys: String, CodingKey {
+        case path, kind, size, duration, fps, width, height
+        case relativePath = "relative_path"
+        case groupKey = "group_key"
+        case captureTime = "capture_time"
+        case hasAudio = "has_audio"
+    }
+}
+
+struct ScannedGroupPayload: Codable {
+    let id: String
+    let suggestedName: String
+    let start: String
+    let end: String
+    let videoCount: Int
+    let fileCount: Int
+    let totalBytes: Int64
+    let files: [ScannedFile]
+
+    enum CodingKeys: String, CodingKey {
+        case id, start, end, files
+        case suggestedName = "suggested_name"
+        case videoCount = "video_count"
+        case fileCount = "file_count"
+        case totalBytes = "total_bytes"
+    }
+}
+
+struct ScanPayload: Codable {
+    let source: String
+    let videoCount: Int
+    let sidecarCount: Int
+    let totalBytes: Int64
+    let groups: [ScannedGroupPayload]
+    let unassignedSidecars: [ScannedFile]
+
+    enum CodingKeys: String, CodingKey {
+        case source, groups
+        case videoCount = "video_count"
+        case sidecarCount = "sidecar_count"
+        case totalBytes = "total_bytes"
+        case unassignedSidecars = "unassigned_sidecars"
+    }
+}
+
+struct ShootGroup: Identifiable, Hashable {
+    let id: String
+    var name: String
+    var kind: ProjectKind
+    var files: [ScannedFile]
+    let start: String
+    let end: String
+
+    var videos: [ScannedFile] { files.filter { $0.kind == "video" } }
+    var totalBytes: Int64 { files.reduce(0) { $0 + $1.size } }
+}
+
+struct ProjectRecord: Codable, Identifiable, Hashable {
+    let id: UUID
+    var name: String
+    var rootPath: String
+    var sourcePath: String
+    var kind: ProjectKind
+    var createdAt: Date
+    var indexedAssets: Int
+    var visualSamples: Int
+    var transcripts: Int?
+
+    init(id: UUID = UUID(), name: String, rootPath: String, sourcePath: String, kind: ProjectKind, createdAt: Date = Date(), indexedAssets: Int = 0, visualSamples: Int = 0, transcripts: Int? = nil) {
+        self.id = id
+        self.name = name
+        self.rootPath = rootPath
+        self.sourcePath = sourcePath
+        self.kind = kind
+        self.createdAt = createdAt
+        self.indexedAssets = indexedAssets
+        self.visualSamples = visualSamples
+        self.transcripts = transcripts
+    }
+}
+
+struct MomentResult: Codable, Identifiable, Hashable {
+    let assetID: String
+    let sourcePath: String
+    let query: String
+    let score: Double
+    let detectedStart: Double
+    let detectedEnd: Double
+    let handledStart: Double?
+    let handledEnd: Double?
+    let labels: [String]
+    let transcript: String?
+
+    var id: String { "\(assetID)-\(handledStart ?? detectedStart)-\(query)" }
+    var fileName: String { URL(fileURLWithPath: sourcePath).lastPathComponent }
+
+    enum CodingKeys: String, CodingKey {
+        case query, score, labels, transcript
+        case assetID = "asset_id"
+        case sourcePath = "source_path"
+        case detectedStart = "detected_start"
+        case detectedEnd = "detected_end"
+        case handledStart = "handled_start"
+        case handledEnd = "handled_end"
+    }
+}
+
+struct ProjectStatus: Codable {
+    let projectRoot: String
+    let exists: Bool
+    let assets: Int
+    let visualSamples: Int
+    let transcripts: Int
+    let indexPath: String
+
+    enum CodingKeys: String, CodingKey {
+        case exists, assets, transcripts
+        case projectRoot = "project_root"
+        case visualSamples = "visual_samples"
+        case indexPath = "index_path"
+    }
+}
+
+struct ResolveScaffoldResult: Codable {
+    let project: String
+    let projectRoot: String
+    let source: String
+    let sourceFiles: Int
+    let imported: Int
+    let snapshot: String
+    let snapshotExported: Bool
+    let timelineFPS: Double?
+    let playbackFPS: Double?
+    let frameRatesMatch: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case project, source, imported, snapshot
+        case projectRoot = "project_root"
+        case sourceFiles = "source_files"
+        case snapshotExported = "snapshot_exported"
+        case timelineFPS = "timeline_fps"
+        case playbackFPS = "playback_fps"
+        case frameRatesMatch = "frame_rates_match"
+    }
+}
+
+struct SelectsResult: Codable {
+    let project: String
+    let timeline: String
+    let rangesRequested: Int
+    let rangesAppended: Int
+    let query: String
+    let moments: Int
+
+    enum CodingKeys: String, CodingKey {
+        case project, timeline, query, moments
+        case rangesRequested = "ranges_requested"
+        case rangesAppended = "ranges_appended"
+    }
+}
+
+struct ActivityEntry: Identifiable, Hashable {
+    let id = UUID()
+    let date = Date()
+    let message: String
+    let isError: Bool
+}
+
+extension TimeInterval {
+    var editorTimecode: String {
+        let value = max(0, self)
+        let hours = Int(value / 3600)
+        let minutes = Int(value.truncatingRemainder(dividingBy: 3600) / 60)
+        let seconds = value.truncatingRemainder(dividingBy: 60)
+        return String(format: "%02d:%02d:%05.2f", hours, minutes, seconds)
+    }
+}

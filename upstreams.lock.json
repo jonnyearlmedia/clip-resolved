@@ -24,6 +24,22 @@
       "directory": "external/davinci-resolve-mcp",
       "license": "MIT",
       "purpose": "Resolve connection helpers, API-truth tests, and scripting implementation"
+    },
+    {
+      "name": "kontentmanager",
+      "repo": "https://github.com/SoCloseSociety/kontentmanager.git",
+      "commit": "900194791bd956f0391fadfaeca768d16bf8e742",
+      "directory": "external/kontentmanager",
+      "license": "MIT",
+      "purpose": "card discovery, media grouping, sidecar-aware verified atomic ingest"
+    },
+    {
+      "name": "SD-Offload",
+      "repo": "https://github.com/t0nyz0/SD-Offload.git",
+      "commit": "1d72b3e632f81f5ac361e077d6f9d74764b2bec3",
+      "directory": "external/SD-Offload",
+      "license": "MIT",
+      "purpose": "durable verified-offload journal and fail-closed WipeGate cleanup model"
     }
   ]
 }

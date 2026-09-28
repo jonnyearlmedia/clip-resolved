@@ -71,6 +71,13 @@ class IndexStore:
         # indexed_at is invalidated when the underlying source file changes.
         # Old visual rows can remain briefly; visual_index_is_current() will not
         # trust them and replace_visual_samples() deletes them atomically later.
+        existing = self.conn.execute(
+            "SELECT id, size, mtime_ns FROM assets WHERE path = ?", (str(asset.path),)
+        ).fetchone()
+        changed = bool(
+            existing
+            and (int(existing["size"]) != asset.size or int(existing["mtime_ns"]) != asset.mtime_ns)
+        )
         self.conn.execute(
             """
             INSERT INTO assets (
@@ -103,6 +110,8 @@ class IndexStore:
                 asset.mtime_ns,
             ),
         )
+        if changed and existing:
+            self.conn.execute("DELETE FROM transcripts WHERE asset_id = ?", (existing["id"],))
         self.conn.commit()
 
     def replace_visual_samples(self, asset_id: str, samples: Iterable[VisualSample]) -> None:
@@ -167,6 +176,10 @@ class IndexStore:
         row = self.conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
         if row is None:
             return None
+        return self._asset_from_row(row)
+
+    @staticmethod
+    def _asset_from_row(row: sqlite3.Row) -> MediaAsset:
         return MediaAsset(
             id=row["id"],
             path=Path(row["path"]),
@@ -179,8 +192,47 @@ class IndexStore:
             mtime_ns=int(row["mtime_ns"]),
         )
 
+    def iter_assets(self) -> Iterator[MediaAsset]:
+        rows = self.conn.execute("SELECT * FROM assets ORDER BY path")
+        for row in rows:
+            yield self._asset_from_row(row)
+
     def asset_count(self) -> int:
         return int(self.conn.execute("SELECT COUNT(*) FROM assets").fetchone()[0])
 
     def visual_sample_count(self) -> int:
         return int(self.conn.execute("SELECT COUNT(*) FROM visual_samples").fetchone()[0])
+
+    def put_transcript(self, asset_id: str, payload: dict) -> None:
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT INTO transcripts (asset_id, payload_json, indexed_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(asset_id) DO UPDATE SET
+                  payload_json=excluded.payload_json,
+                  indexed_at=excluded.indexed_at
+                """,
+                (asset_id, json.dumps(payload, separators=(",", ":")), time.time()),
+            )
+
+    def get_transcript(self, asset_id: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT payload_json FROM transcripts WHERE asset_id = ?", (asset_id,)
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def iter_transcripts(self) -> Iterator[tuple[MediaAsset, dict]]:
+        rows = self.conn.execute(
+            """
+            SELECT a.*, t.payload_json
+            FROM transcripts t
+            JOIN assets a ON a.id = t.asset_id
+            ORDER BY a.path
+            """
+        )
+        for row in rows:
+            yield self._asset_from_row(row), json.loads(row["payload_json"])
+
+    def transcript_count(self) -> int:
+        return int(self.conn.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0])

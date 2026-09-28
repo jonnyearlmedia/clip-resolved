@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +39,9 @@ class SynthCutClipBridge:
             )
         env = os.environ.copy()
         env["CLIP_RESOLVED_SYNTHCUT_ROOT"] = str(self.synthcut_root)
+        whisper = shutil.which("whisper-cli")
+        if whisper:
+            env.setdefault("AIVE_WHISPER_BIN", whisper)
         self._proc = subprocess.Popen(
             [str(self.tsx), str(self.bridge_path)],
             cwd=self.repo_root,
@@ -104,3 +109,40 @@ class SynthCutClipBridge:
         if embedding is None:
             return None
         return tuple(float(v) for v in embedding)
+
+    def transcribe(self, path: str | Path, *, language: str = "auto", model: str = "base.en") -> dict:
+        source = Path(path).expanduser().resolve()
+        with tempfile.TemporaryDirectory(prefix="clip-resolved-whisper-") as directory:
+            wav = Path(directory) / "audio.wav"
+            proc = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-v",
+                    "error",
+                    "-y",
+                    "-i",
+                    str(source),
+                    "-vn",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "16000",
+                    "-c:a",
+                    "pcm_s16le",
+                    str(wav),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if proc.returncode != 0:
+                raise SynthCutBridgeError(proc.stderr.strip() or f"could not extract audio from {source}")
+            response = self._request(
+                "transcribe",
+                path=str(wav),
+                language=language,
+                model=model,
+            )
+            transcript = response.get("transcript")
+            if not isinstance(transcript, dict):
+                raise SynthCutBridgeError("SynthCut returned an invalid transcript")
+            return transcript

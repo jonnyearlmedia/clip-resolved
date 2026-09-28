@@ -3,8 +3,11 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+*.egg-info/
 external/
 node_modules/
 .clip-resolved/
+.build/
+dist/
 *.sqlite3
 *.db

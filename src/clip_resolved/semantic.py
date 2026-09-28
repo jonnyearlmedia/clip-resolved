@@ -72,6 +72,7 @@ def search(
     *,
     limit: int = 80,
     per_asset_limit: int = 30,
+    min_score: float | None = None,
 ) -> list[SearchHit]:
     query_embedding = bridge.embed_text(query)
     if query_embedding is None:
@@ -95,6 +96,8 @@ def search(
         candidates.extend(hits[: max(1, per_asset_limit)])
 
     candidates.sort(key=lambda h: h.score, reverse=True)
+    if min_score is not None:
+        candidates = [hit for hit in candidates if hit.score >= min_score]
     return candidates[: max(1, limit)]
 
 

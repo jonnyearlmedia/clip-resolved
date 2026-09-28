@@ -4,7 +4,7 @@ from clip_resolved.models import MediaAsset, Moment
 from clip_resolved.resolve import ResolveAdapter
 
 
-def test_60fps_handled_seconds_convert_to_inclusive_source_frames():
+def test_60fps_handled_seconds_convert_to_half_open_source_frames():
     asset = MediaAsset(
         id="a",
         path=Path("/tmp/DJI_0001.MP4"),
@@ -30,5 +30,5 @@ def test_60fps_handled_seconds_convert_to_inclusive_source_frames():
     start, end = ResolveAdapter._source_frame_range(moment, asset)
 
     assert start == 2112
-    assert end == 2825
-    assert end - start + 1 == 714
+    assert end == 2826
+    assert end - start == 714

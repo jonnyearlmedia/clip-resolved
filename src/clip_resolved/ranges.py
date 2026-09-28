@@ -64,3 +64,51 @@ def apply_handles(
         minimum=minimum,
     )
     return replace(moment, handled_start=start, handled_end=end)
+
+
+def merge_overlapping_handled(moments: list[Moment]) -> list[Moment]:
+    """Merge handled ranges that would repeat source footage in a stringout.
+
+    VideoHighlighter has already merged its detected regions. Editorial handles
+    are applied afterward and can make two otherwise separate detections overlap;
+    this final source-range pass removes only that newly introduced duplication.
+    """
+    ordered = sorted(
+        moments,
+        key=lambda moment: (
+            str(moment.source_path),
+            moment.handled_start if moment.handled_start is not None else moment.detected_start,
+        ),
+    )
+    merged: list[Moment] = []
+    for moment in ordered:
+        if moment.handled_start is None or moment.handled_end is None:
+            raise ValueError("moment requires handled_start/handled_end before merging")
+        if not merged:
+            merged.append(moment)
+            continue
+        previous = merged[-1]
+        assert previous.handled_start is not None and previous.handled_end is not None
+        if moment.asset_id != previous.asset_id or moment.handled_start > previous.handled_end:
+            merged.append(moment)
+            continue
+
+        metadata = dict(previous.metadata)
+        metadata["sample_hits"] = int(previous.metadata.get("sample_hits", 0)) + int(
+            moment.metadata.get("sample_hits", 0)
+        )
+        metadata["merged_handled_ranges"] = int(
+            previous.metadata.get("merged_handled_ranges", 1)
+        ) + int(moment.metadata.get("merged_handled_ranges", 1))
+        merged[-1] = replace(
+            previous,
+            detected_start=min(previous.detected_start, moment.detected_start),
+            detected_end=max(previous.detected_end, moment.detected_end),
+            handled_start=min(previous.handled_start, moment.handled_start),
+            handled_end=max(previous.handled_end, moment.handled_end),
+            score=max(previous.score, moment.score),
+            labels=previous.labels | moment.labels,
+            provenance=list(dict.fromkeys([*previous.provenance, *moment.provenance])),
+            metadata=metadata,
+        )
+    return merged

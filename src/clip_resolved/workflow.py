@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from .models import MediaAsset, Moment
-from .ranges import apply_handles
+from .ranges import apply_handles, merge_overlapping_handled
 from .semantic import hits_by_asset, search
 from .store import IndexStore
 from .synthcut import SynthCutClipBridge
@@ -25,6 +25,7 @@ def find_moments(
     *,
     search_limit: int = 80,
     per_asset_limit: int = 30,
+    min_score: float = 0.22,
     pre_handle: float = 2.0,
     post_handle: float = 3.0,
     minimum_duration: float = 6.0,
@@ -35,16 +36,18 @@ def find_moments(
         bridge,
         limit=search_limit,
         per_asset_limit=per_asset_limit,
+        min_score=min_score,
     )
     grouped = hits_by_asset(hits)
     moments: list[Moment] = []
-    assets: dict[str, MediaAsset] = {}
+    # Resolve imports the complete indexed source set, even when this query only
+    # matches a subset. Query results remain source ranges into those originals.
+    assets = {asset.id: asset for asset in store.iter_assets()}
 
     for asset_id, asset_hits in grouped.items():
         asset = store.get_asset(asset_id)
         if asset is None:
             continue
-        assets[asset_id] = asset
         detected = region_builder.semantic_regions(asset, asset_hits, query)
         moments.extend(
             apply_handles(
@@ -59,5 +62,4 @@ def find_moments(
 
     # SELECTS/stringout convention: preserve source chronology. Score remains on
     # each moment so a later UI can sort/rank without losing editorial order.
-    moments.sort(key=lambda m: (str(m.source_path), m.handled_start or 0.0))
-    return moments, assets
+    return merge_overlapping_handled(moments), assets

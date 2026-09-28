@@ -55,6 +55,18 @@ clone_pin \
   "f4cd0f90d11431278ef5a24474ddad9d4e483251" \
   "$EXTERNAL/davinci-resolve-mcp"
 
+clone_pin \
+  "kontentmanager" \
+  "https://github.com/SoCloseSociety/kontentmanager.git" \
+  "900194791bd956f0391fadfaeca768d16bf8e742" \
+  "$EXTERNAL/kontentmanager"
+
+clone_pin \
+  "SD-Offload" \
+  "https://github.com/t0nyz0/SD-Offload.git" \
+  "1d72b3e632f81f5ac361e077d6f9d74764b2bec3" \
+  "$EXTERNAL/SD-Offload"
+
 echo "==> installing SynthCut workspace dependencies"
 (
   cd "$EXTERNAL/SynthCut"

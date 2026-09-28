@@ -4,7 +4,7 @@
 
 Read root `AGENTS.md` before changing implementation.
 
-This repository is no longer documentation-only. A real first vertical slice exists under `src/clip_resolved/`.
+This repository contains a working Python backend and native SwiftUI macOS app.
 
 ## Reuse rule
 
@@ -19,18 +19,12 @@ Keep upstream license/attribution files when code is copied. That is compliance 
 ## What exists now
 
 ```text
-local source folder
-  -> ffprobe metadata
-  -> SynthCut actual CLIP embedImage()
-  -> persistent SQLite visual index
-  -> SynthCut actual CLIP embedText()
-  -> arbitrary semantic timestamp hits
-  -> VideoHighlighter actual auto_segments region functions
-  -> handled editorial ranges
-  -> Resolve MCP actual connection helper
-  -> DaVinci Resolve Media Pool
-  -> AppendToTimeline exact source ranges
-  -> SELECTS timeline
+card/folder scan -> confirmed shoot groups -> checksum-verified Media/Osmo copy
+  -> Resolve project/bin scaffold + .drp snapshot
+  -> persistent SynthCut CLIP index + optional timed Whisper transcript
+  -> arbitrary visual or spoken-word query
+  -> VideoHighlighter regions + handled editorial ranges
+  -> Resolve AppendToTimeline exact source ranges -> SELECTS timeline
 ```
 
 Detected moments are source ranges. They are not rendered into replacement MP4s.
@@ -50,6 +44,8 @@ Pins live in `upstreams.lock.json`:
 - `Relo-video/SynthCut` @ `96b1ca0e8b9935cc0d9561a3bc020f29bf9e88a0`
 - `Aseiel/VideoHighlighter` @ `063e16416531679b98e39c7729c219e7ada362d9`
 - `samuelgursky/davinci-resolve-mcp` @ `f4cd0f90d11431278ef5a24474ddad9d4e483251`
+- `SoCloseSociety/kontentmanager` @ `900194791bd956f0391fadfaeca768d16bf8e742`
+- `t0nyz0/SD-Offload` @ `1d72b3e632f81f5ac361e077d6f9d74764b2bec3`
 
 These are working code dependencies, not reference material.
 
@@ -84,7 +80,15 @@ SQLite project intelligence state:
 - source assets
 - source freshness
 - persistent visual embeddings
-- reserved transcript storage
+- timed transcript storage
+
+### `src/clip_resolved/ingest.py`
+
+Read-only recursive scan, ffprobe metadata, temporal session proposals, and sidecar grouping through pinned KontentManager format code.
+
+### `src/clip_resolved/transcript.py`
+
+Calls SynthCut's actual Whisper implementation, persists timed cues/words, searches spoken text, and creates handled transcript moments.
 
 ### `src/clip_resolved/semantic.py`
 
@@ -119,11 +123,23 @@ Then it:
 - finds imported media by real file path
 - imports missing original media
 - creates a SELECTS timeline
-- converts source seconds to frames
+- converts source seconds to half-open source-frame ranges
 - calls `MediaPool.AppendToTimeline(...)`
 - saves the current project
+- exports/updates the project-root `.drp` after scaffold and SELECTS changes
+- refuses unsaved projects and mismatched timeline/playback rates before mutation
 
-The source-frame end convention must be checked live on Jonny's installed Resolve build before treating frame boundaries as locked.
+### `Sources/ClipResolved/`
+
+Native SwiftUI app with Disk Arbitration card detection, scan/group/name UI, SHA-256 verified ingest using SD-Offload primitives, persistent project library, visual/transcript search, and Resolve SELECTS actions.
+
+Build and launch it with:
+
+```bash
+./script/build_and_run.sh
+```
+
+The pinned Resolve wrapper's live readback establishes `endFrame` as exclusive on Resolve Studio 21.0. Recheck the resulting range duration on Jonny's installed 21.1 build during the live test.
 
 ### `src/clip_resolved/cli.py`
 
@@ -133,6 +149,9 @@ Current commands:
 clip-resolved doctor
 clip-resolved doctor --deep
 clip-resolved doctor --resolve
+
+clip-resolved scan --source "/path/to/card"
+clip-resolved resolve-scaffold --project-root "/path/to/project" --project-name "Project" --source "/path/to/originals"
 
 clip-resolved index \
   --project-root "/path/to/Test Project" \
@@ -149,6 +168,10 @@ clip-resolved moments \
 clip-resolved selects \
   --project-root "/path/to/Test Project" \
   "all the luxury cars"
+
+clip-resolved transcribe --project-root "/path/to/Test Project" --source "/path/to/originals"
+clip-resolved transcript-search --project-root "/path/to/Test Project" "spoken phrase"
+clip-resolved transcript-selects --project-root "/path/to/Test Project" "spoken phrase"
 ```
 
 `selects` changes the currently open Resolve project.
@@ -179,29 +202,20 @@ At minimum:
 
 The unplanned query matters because Wideframe-style behavior is the actual target: analyze once, then ask new questions later.
 
-## What is implemented but not yet live-tested here
+## Live evidence on Jonny's Mac
 
-This environment cannot run Jonny's local Resolve instance or his real Osmo footage, so Claude Code/Codex must verify:
+- Resolve Studio 21.1 scripting connection confirmed.
+- OSAKA: 65 original Osmo MP4s and 848 saved visual samples.
+- Multiple arbitrary post-index queries returned handled timestamped ranges without re-indexing.
+- Source-linked SELECTS timelines were appended in Resolve at matched 30/30 project rates.
+- SynthCut's Whisper bridge executed against real embedded Osmo audio; silent clips correctly produce no usable speech cues.
+- Native app builds, launches, and remains running as a normal macOS process.
 
-- SynthCut bridge on his installed Node/macOS setup
-- first CLIP model download/cache
-- semantic retrieval quality
-- best frame sampling interval
-- VideoHighlighter grouping quality from semantic hits
-- Resolve source-frame off-by-one behavior
-- Resolve Media Pool `File Path` lookup behavior
-- throughput/RAM while Resolve is also open on M2 Pro 16 GB
+## Still intentionally gated
 
-Do not add more architecture before running these tests unless something is genuinely blocked.
-
-## Next coding order after first footage test
-
-1. Fix actual failures in the current vertical slice.
-2. Pull in more VideoHighlighter code directly where it improves results: `shot_type.py`, `clip_quality.py`, scene/change signals.
-3. Pull in SynthCut/Whisper transcript code directly and persist timestamped transcripts.
-4. Combine visual + transcript evidence for interview separation and richer queries.
-5. Add the minimal Resolve-side search/selects UI.
-6. Integrate the already-researched ingest repos after the footage-brain -> Resolve path is proven.
+- Card cleanup remains disabled until its exact SD-Offload `WipeGate` execution path is integrated and tested with disposable card media. Normal use never erases the card.
+- External DJI Mic 2 sync needs actual matching camera/WAV samples for waveform-offset validation; embedded Osmo audio works now.
+- Backup-destination, archive, proxy, and in-Resolve panel policies remain open decisions in `DECISIONS.md`; the standalone app is the working editing companion.
 
 ## Do not do these
 
