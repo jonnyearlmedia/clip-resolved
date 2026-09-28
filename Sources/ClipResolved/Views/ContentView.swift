@@ -24,6 +24,19 @@ struct ContentView: View {
                 StatusBar(store: store)
             }
         }
+        .safeAreaInset(edge: .trailing, spacing: 0) {
+            if let evidence = store.previewEvidence {
+                HStack(spacing: 0) {
+                    Divider()
+                    FootagePreviewSidebarView(
+                        evidence: evidence,
+                        onClose: { store.previewEvidence = nil }
+                    )
+                    .id(evidence.id)
+                    .frame(width: 480)
+                }
+            }
+        }
         .alert("Clip Resolved", isPresented: Binding(
             get: { store.errorMessage != nil },
             set: { if !$0 { store.errorMessage = nil } }

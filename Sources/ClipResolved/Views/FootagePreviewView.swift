@@ -3,59 +3,208 @@ import AVKit
 import AppKit
 import SwiftUI
 
-struct FootagePreviewView: View {
-    @Environment(\.dismiss) private var dismiss
+/// SwiftUI owns this sidebar's place in the main layout. Only the native player controller crosses
+/// the AppKit boundary, avoiding AVKit's crashing SwiftUI `VideoPlayer` while preserving normal
+/// mouse and responder routing for every control.
+struct FootagePreviewSidebarView: NSViewControllerRepresentable {
     let evidence: ChatEvidence
-    @StateObject private var controller: FootagePreviewController
+    let onClose: () -> Void
 
-    init(evidence: ChatEvidence) {
-        self.evidence = evidence
-        _controller = StateObject(wrappedValue: FootagePreviewController(evidence: evidence))
+    func makeNSViewController(context: Context) -> FootagePreviewSidebarController {
+        let controller = FootagePreviewSidebarController(evidence: evidence, onClose: onClose)
+        controller.prepareAndPlay()
+        return controller
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(evidence.fileName).font(.title2.bold())
-                    Text("Matched range \(evidence.start.editorTimecode) – \(evidence.end.editorTimecode)")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                Spacer()
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-            }
+    func updateNSViewController(_ controller: FootagePreviewSidebarController, context: Context) { }
 
-            VideoPlayer(player: controller.player)
-                .frame(minWidth: 780, minHeight: 438)
-                .background(.black)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+    static func dismantleNSViewController(_ controller: FootagePreviewSidebarController, coordinator: ()) {
+        controller.stop()
+    }
+}
 
-            HStack {
-                Button {
-                    controller.replayMatch()
-                } label: {
-                    Label("Replay Match", systemImage: "backward.end.fill")
-                }
-                .keyboardShortcut(.space, modifiers: [])
+@MainActor
+final class FootagePreviewSidebarController: NSViewController {
+    let evidence: ChatEvidence
+    let player: AVPlayer
+    let playerView = AVPlayerView(frame: .zero)
+    let selectedDuration: Double
 
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: evidence.sourcePath)])
-                } label: {
-                    Label("Reveal Original", systemImage: "folder")
-                }
+    private let onClose: () -> Void
+    private var loadingTask: Task<Void, Never>?
 
-                Spacer()
-                Text("Playback starts at the handled in point and pauses at the out point. Scrub freely to inspect context.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    init(evidence: ChatEvidence, onClose: @escaping () -> Void = {}) {
+        self.evidence = evidence
+        self.onClose = onClose
+
+        let start = max(0, evidence.start)
+        let end = max(start + 0.1, evidence.end)
+        selectedDuration = end - start
+        player = AVPlayer()
+
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func loadView() {
+        view = makeContentView()
+    }
+
+    func prepareAndPlay() {
+        loadingTask?.cancel()
+        let sourceURL = URL(fileURLWithPath: evidence.sourcePath)
+        let start = max(0, evidence.start)
+        let end = max(start + 0.1, evidence.end)
+        loadingTask = Task { [weak self] in
+            guard let item = await Self.makeTrimmedPlayerItem(sourceURL: sourceURL, start: start, end: end),
+                  !withUnsafeCurrentTask(body: { $0?.isCancelled ?? false }),
+                  let self else { return }
+            player.replaceCurrentItem(with: item)
+            replayMatch()
+        }
+    }
+
+    func replayMatch() {
+        player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { [weak player] finished in
+            if finished { player?.play() }
+        }
+    }
+
+    func stop() {
+        loadingTask?.cancel()
+        loadingTask = nil
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+    }
+
+    private func makeContentView() -> NSView {
+        let root = NSVisualEffectView(frame: .zero)
+        root.material = .sidebar
+        root.blendingMode = .withinWindow
+        root.state = .active
+
+        let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close preview")!, target: self, action: #selector(closePressed))
+        close.bezelStyle = .circular
+        close.isBordered = false
+
+        let title = NSTextField(labelWithString: evidence.fileName)
+        title.font = .systemFont(ofSize: 17, weight: .semibold)
+        title.lineBreakMode = .byTruncatingMiddle
+
+        let range = NSTextField(
+            labelWithString: "SELECTED MOMENT  •  \(selectedDuration.formatted(.number.precision(.fractionLength(1)))) SEC"
+        )
+        range.font = .systemFont(ofSize: 11, weight: .semibold)
+        range.textColor = .systemBlue
+
+        let sourceRange = NSTextField(
+            labelWithString: "Source \(evidence.start.editorTimecode) – \(evidence.end.editorTimecode)"
+        )
+        sourceRange.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        sourceRange.textColor = .secondaryLabelColor
+
+        let headerText = NSStackView(views: [title, range, sourceRange])
+        headerText.orientation = .vertical
+        headerText.alignment = .leading
+        headerText.spacing = 4
+
+        let headerSpacer = NSView(frame: .zero)
+        headerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let heading = NSStackView(views: [headerText, headerSpacer, close])
+        heading.orientation = .horizontal
+        heading.alignment = .top
+        heading.spacing = 10
+
+        let divider = NSBox(frame: .zero)
+        divider.boxType = .separator
+
+        playerView.player = player
+        playerView.controlsStyle = .floating
+        playerView.showsFullScreenToggleButton = false
+        playerView.translatesAutoresizingMaskIntoConstraints = false
+
+        let replay = NSButton(title: "Replay Selected Moment", target: self, action: #selector(replayPressed))
+        replay.bezelStyle = .rounded
+
+        let reveal = NSButton(title: "Reveal Original MP4", target: self, action: #selector(revealPressed))
+        reveal.bezelStyle = .rounded
+
+        let controls = NSStackView(views: [replay, reveal])
+        controls.orientation = .horizontal
+        controls.alignment = .centerY
+        controls.spacing = 8
+
+        let note = NSTextField(
+            wrappingLabelWithString: "This player contains only this selected range. It references the original MP4; no preview or SELECTS media file was rendered."
+        )
+        note.font = .systemFont(ofSize: 11)
+        note.textColor = .secondaryLabelColor
+
+        let content = NSStackView(views: [heading, divider, playerView, controls, note])
+        content.orientation = .vertical
+        content.alignment = .leading
+        content.spacing = 12
+        content.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(content)
+
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
+            content.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
+            content.topAnchor.constraint(equalTo: root.topAnchor, constant: 20),
+            content.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -20),
+            heading.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            heading.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            divider.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            divider.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            playerView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            playerView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            playerView.heightAnchor.constraint(equalToConstant: 360),
+            controls.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            note.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            note.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+        ])
+
+        return root
+    }
+
+    private static func makeTrimmedPlayerItem(sourceURL: URL, start: Double, end: Double) async -> AVPlayerItem? {
+        let asset = AVURLAsset(url: sourceURL)
+        let composition = AVMutableComposition()
+        let sourceRange = CMTimeRange(
+            start: CMTime(seconds: start, preferredTimescale: 600),
+            end: CMTime(seconds: end, preferredTimescale: 600)
+        )
+
+        for mediaType in [AVMediaType.video, AVMediaType.audio] {
+            guard let sourceTrack = try? await asset.loadTracks(withMediaType: mediaType).first,
+                  let destinationTrack = composition.addMutableTrack(
+                    withMediaType: mediaType,
+                    preferredTrackID: kCMPersistentTrackID_Invalid
+                  ) else { continue }
+            try? destinationTrack.insertTimeRange(sourceRange, of: sourceTrack, at: .zero)
+            if mediaType == .video,
+               let transform = try? await sourceTrack.load(.preferredTransform) {
+                destinationTrack.preferredTransform = transform
             }
         }
-        .padding(20)
-        .frame(minWidth: 840, minHeight: 560)
-        .onAppear { controller.replayMatch() }
-        .onDisappear { controller.stop() }
+
+        guard !composition.tracks.isEmpty else { return nil }
+        return AVPlayerItem(asset: composition)
+    }
+
+    @objc private func replayPressed() {
+        replayMatch()
+    }
+
+    @objc private func revealPressed() {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: evidence.sourcePath)])
+    }
+
+    @objc private func closePressed() {
+        onClose()
     }
 }
 
@@ -81,43 +230,6 @@ struct EvidenceThumbnailView: View {
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(.separator.opacity(0.5)))
         .task(id: evidence.id) {
             loader.load(path: evidence.sourcePath, seconds: evidence.start)
-        }
-    }
-}
-
-final class FootagePreviewController: ObservableObject {
-    let player: AVPlayer
-    private let start: Double
-    private let end: Double
-    private var timeObserver: Any?
-
-    init(evidence: ChatEvidence) {
-        start = evidence.start
-        end = evidence.end
-        player = AVPlayer(url: URL(fileURLWithPath: evidence.sourcePath))
-        timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
-            queue: .main
-        ) { [weak self] time in
-            guard let self, time.seconds.isFinite, time.seconds >= self.end else { return }
-            self.player.pause()
-        }
-    }
-
-    func replayMatch() {
-        let target = CMTime(seconds: start, preferredTimescale: 600)
-        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
-            if finished { self?.player.play() }
-        }
-    }
-
-    func stop() {
-        player.pause()
-    }
-
-    deinit {
-        if let timeObserver {
-            player.removeTimeObserver(timeObserver)
         }
     }
 }

@@ -4,7 +4,6 @@ struct ChatView: View {
     @Bindable var store: AppStore
     @State private var draft = ""
     @State private var showMemory = false
-    @State private var previewEvidence: ChatEvidence?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,9 +25,6 @@ struct ChatView: View {
         .navigationTitle("Project Chat")
         .sheet(isPresented: $showMemory) {
             MemoryView(store: store, isPresented: $showMemory)
-        }
-        .sheet(item: $previewEvidence) { evidence in
-            FootagePreviewView(evidence: evidence)
         }
     }
 
@@ -80,7 +76,7 @@ struct ChatView: View {
                         ForEach(store.selectedProjectMessages) { message in
                             ChatMessageView(
                                 message: message,
-                                preview: { evidence in previewEvidence = evidence },
+                                preview: { evidence in store.previewEvidence = evidence },
                                 stageAction: { action in
                                     Task {
                                         await store.stageSuggestedChatAction(action, projectID: message.projectID)

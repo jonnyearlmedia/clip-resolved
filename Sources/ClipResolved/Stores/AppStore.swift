@@ -16,6 +16,7 @@ final class AppStore {
     var searchMode: SearchMode = .visual
     var timelineName = ""
     var moments: [MomentResult] = []
+    var previewEvidence: ChatEvidence?
     var cards: [CardInfo] = []
     var activity: [ActivityEntry] = []
     var chatMessages: [ChatMessage] = []
