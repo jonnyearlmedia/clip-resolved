@@ -146,6 +146,20 @@ actor BackendService {
         )
     }
 
+    func createSmartSelects(projectRoot: String, profile: String, minScore: Double, pre: Double, post: Double, minimum: Double) async throws -> SmartSelectsResult {
+        try await decode(
+            SmartSelectsResult.self,
+            arguments: [
+                "smart-selects", "--project-root", projectRoot,
+                "--profile", profile,
+                "--min-score", String(minScore),
+                "--pre-handle", String(pre),
+                "--post-handle", String(post),
+                "--minimum-duration", String(minimum),
+            ]
+        )
+    }
+
     func createTranscriptSelects(projectRoot: String, query: String, name: String, pre: Double, post: Double, minimum: Double) async throws -> SelectsResult {
         try await decode(
             SelectsResult.self,

@@ -5,8 +5,11 @@ from clip_resolved.semantic import sample_times, search
 from clip_resolved.store import IndexStore
 from clip_resolved.cli import _timecode
 from clip_resolved.workflow import (
+    RESTAURANT_SELECTS_PROFILE,
+    all_source_moments,
     default_remainder_timeline_name,
     default_timeline_name,
+    selects_profile,
     unselected_moments,
 )
 
@@ -36,6 +39,64 @@ def test_timeline_name_from_arbitrary_query():
     assert default_timeline_name("all the luxury cars") == "ALL THE LUXURY CARS SELECTS"
     assert default_timeline_name("chef / food close-ups!") == "CHEF FOOD CLOSE UPS SELECTS"
     assert default_remainder_timeline_name("FOOD SHOTS SELECTS") == "FOOD SHOTS NOT SELECTED"
+
+
+def test_restaurant_profile_restores_original_category_package():
+    assert selects_profile("restaurant") == RESTAURANT_SELECTS_PROFILE
+    assert [category.timeline_name for category in RESTAURANT_SELECTS_PROFILE] == [
+        "FOOD SHOTS SELECTS",
+        "EXTERIOR STOREFRONT SELECTS",
+        "INTERIOR DINING ROOM SELECTS",
+        "DRINKS SELECTS",
+        "SIGNAGE LOGO SELECTS",
+        "JAPANESE FOOD CLOSE UPS SELECTS",
+        "SAKE BOTTLES SELECTS",
+    ]
+
+
+def test_global_remainder_uses_union_of_all_category_ranges(tmp_path: Path):
+    item = asset(tmp_path / "DJI_0001.MP4")
+    category_ranges = [
+        Moment(
+            asset_id=item.id,
+            source_path=item.path,
+            detected_start=2,
+            detected_end=6,
+            handled_start=2,
+            handled_end=6,
+            score=0.5,
+            query="food",
+        ),
+        Moment(
+            asset_id=item.id,
+            source_path=item.path,
+            detected_start=4,
+            detected_end=10,
+            handled_start=4,
+            handled_end=10,
+            score=0.4,
+            query="drinks",
+        ),
+    ]
+
+    remainder = unselected_moments(category_ranges, {item.id: item}, query="restaurant package")
+    assert [
+        (moment.metadata["source_start_frame"], moment.metadata["source_end_frame"])
+        for moment in remainder
+    ] == [(0, 120), (600, 1200)]
+
+
+def test_all_source_stringout_contains_each_original_once_in_path_order(tmp_path: Path):
+    first = asset(tmp_path / "DJI_0002.MP4")
+    second = MediaAsset(
+        **{**first.__dict__, "id": "asset-2", "path": tmp_path / "DJI_0001.MP4", "duration": 5.0}
+    )
+
+    moments = all_source_moments({first.id: first, second.id: second})
+
+    assert [moment.source_path.name for moment in moments] == ["DJI_0001.MP4", "DJI_0002.MP4"]
+    assert [moment.metadata["source_start_frame"] for moment in moments] == [0, 0]
+    assert [moment.metadata["source_end_frame"] for moment in moments] == [300, 1200]
 
 
 def test_unselected_moments_are_exact_source_frame_complement(tmp_path: Path):

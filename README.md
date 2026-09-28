@@ -4,7 +4,7 @@
 
 The goal is not to replace Resolve. The goal is to remove repetitive work between plugging in a camera card and actually editing, while giving Resolve local semantic footage intelligence that can find, organize, and prepare useful moments from source media.
 
-> **Current status:** the local macOS app covers card/folder discovery, shoot confirmation, checksum-verified ingest, project creation, visual indexing, timed transcripts, arbitrary search, persistent project chat/memory, and source-linked Resolve SELECTS.
+> **Current status:** the local macOS app covers card/folder discovery, shoot confirmation, checksum-verified ingest, project creation, visual indexing, timed transcripts, arbitrary search, persistent project chat/memory, shoot-aware SELECTS packages, and source-linked Resolve timelines.
 
 ## Core target
 
@@ -33,6 +33,7 @@ camera card or existing footage folder
   -> SynthCut CLIP visual index and optional SynthCut/Whisper transcripts
   -> arbitrary later visual or spoken-word queries
   -> VideoHighlighter region grouping + configurable handles
+  -> shoot-aware category package + complete raw-footage stringout
   -> DaVinci Resolve SELECTS timeline with exact original source ranges
 ```
 
@@ -96,6 +97,10 @@ clip-resolved moments \
 clip-resolved selects \
   --project-root "/path/to/Test Project" \
   "all the luxury cars"
+
+clip-resolved smart-selects \
+  --project-root "/path/to/Test Project" \
+  --profile restaurant
 ```
 
 Optional embedded-audio transcription:
@@ -109,6 +114,20 @@ clip-resolved transcript-selects --project-root "/path/to/Test Project" "welcome
 The `index` command runs once per source change. New search wording does not re-index footage. SELECTS reference original MP4s; no replacement video is rendered.
 
 Every visual or transcript SELECTS creation also creates a paired `<QUERY> NOT SELECTED` review timeline by default. The second timeline is the exact source-frame complement of the handled SELECTS ranges across the complete indexed source set, including whole clips with no match. Together the pair accounts for the full source corpus without rendering or hiding footage. Pass `--no-remainder` only when that review timeline is intentionally unwanted.
+
+The restaurant smart package creates, in `00 TIMELINES / SELECTS`:
+
+- `00 ALL RAW FOOTAGE STRINGOUT`, containing every indexed original once in source order
+- `FOOD SHOTS SELECTS`
+- `EXTERIOR STOREFRONT SELECTS`
+- `INTERIOR DINING ROOM SELECTS`
+- `DRINKS SELECTS`
+- `SIGNAGE LOGO SELECTS`
+- `JAPANESE FOOD CLOSE UPS SELECTS`
+- `SAKE BOTTLES SELECTS`
+- `ALL FOOTAGE NOT SELECTED REVIEW`, the exact complement of the union of all category ranges
+
+The stringout is the single long all-raw timeline for delivery/export. Category timelines are organized editorial views, and the global review timeline exposes anything the semantic categories did not select. All three forms reference the same original MP4s; Clip Resolved does not render or upload them automatically.
 
 DaVinci Resolve remains the editing environment. Clip Resolved prepares originals, indexes, handled source ranges, and auxiliary SELECTS; it does not replace the NLE.
 

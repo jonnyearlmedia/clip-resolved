@@ -121,6 +121,24 @@ Semantic retrieval can miss useful material. The editor needs the speed of AI SE
 Consequences:
 The two timelines together account for the complete indexed source corpus. Both reference original Media Pool items; neither renders derivative video. Advanced CLI use may disable the complement explicitly with `--no-remainder`.
 
+For a shoot-aware multi-category package, the complement is global: one `ALL FOOTAGE NOT SELECTED REVIEW` timeline is calculated from the union of every category's handled ranges. Creating one complement per category would be redundant and would not answer the editorial question "what did the complete package miss?"
+
+### Initial organization is a professional shoot-aware package
+
+Status: accepted
+Date: 2026-09-28
+
+Decision:
+Initial preparation is not limited to one manually typed query. For restaurant/hospitality footage, Clip Resolved creates a stable, ordered package containing a complete `00 ALL RAW FOOTAGE STRINGOUT`, the established category SELECTS timelines, and one global `ALL FOOTAGE NOT SELECTED REVIEW` timeline.
+
+The complete stringout contains every indexed original once in source order. Category ranges may overlap when the same source moment is legitimately useful in more than one editorial view. The global review timeline is the exact source-frame complement of the union of those category ranges.
+
+Why:
+The user must regularly submit one long timeline covering all raw footage and also needs organized category views for editing. A raw stringout, category timelines, and a global semantic-miss review serve three distinct purposes without duplicating or rendering source media.
+
+Consequences:
+Shoot profiles are deterministic, named, testable recipes executed by the existing SynthCut, VideoHighlighter, and Resolve adapters. Claude may select or discuss a profile conversationally but does not perform media judgment or Resolve mutations itself. Arbitrary new post-index queries remain available and are not constrained to the initial profile.
+
 ## Rejected assumptions
 
 ### "Import everything, then manually search for clips"

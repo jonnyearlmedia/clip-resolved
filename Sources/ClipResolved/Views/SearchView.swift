@@ -3,6 +3,7 @@ import SwiftUI
 struct SearchView: View {
     @Bindable var store: AppStore
     @State private var showAddProject = false
+    @State private var showSmartSelectsConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,6 +22,10 @@ struct SearchView: View {
                     .disabled(store.selectedProject == nil || store.isBusy)
                 Button("Prepare Resolve") { Task { await store.prepareResolve() } }
                     .disabled(store.selectedProject == nil || store.isBusy)
+                Button("Build Restaurant Selects") { showSmartSelectsConfirmation = true }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(store.selectedProject == nil || store.selectedProject?.indexedAssets == 0 || store.isBusy)
+                    .help("Create the organized restaurant category package plus one complete NOT SELECTED review timeline")
             }
             .padding(16)
 
@@ -105,6 +110,18 @@ struct SearchView: View {
         .navigationTitle("Footage Search")
         .sheet(isPresented: $showAddProject) {
             AddProjectView(store: store, isPresented: $showAddProject)
+        }
+        .confirmationDialog(
+            "Build the restaurant SELECTS package?",
+            isPresented: $showSmartSelectsConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Create Complete Package in Resolve") {
+                Task { await store.createSmartSelects() }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Creates 00 ALL RAW FOOTAGE STRINGOUT, then Food, Exterior Storefront, Interior Dining Room, Drinks, Signage/Logo, Japanese Food Close Ups, and Sake Bottles in 00 TIMELINES / SELECTS, followed by ALL FOOTAGE NOT SELECTED REVIEW. Every range references the indexed original MP4s.")
         }
         .task { await store.refreshSelectedProject() }
     }

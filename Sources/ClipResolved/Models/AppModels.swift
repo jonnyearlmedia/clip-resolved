@@ -213,6 +213,53 @@ struct SelectsResult: Codable {
     }
 }
 
+struct SmartSelectsCategoryResult: Codable, Hashable, Identifiable {
+    let name: String
+    let query: String
+    let timeline: String?
+    let moments: Int
+    let rangesRequested: Int
+    let rangesAppended: Int
+
+    var id: String { name }
+
+    enum CodingKeys: String, CodingKey {
+        case name, query, timeline, moments
+        case rangesRequested = "ranges_requested"
+        case rangesAppended = "ranges_appended"
+    }
+}
+
+struct SmartSelectsResult: Codable {
+    let project: String
+    let profile: String
+    let categories: [SmartSelectsCategoryResult]
+    let categoryTimelinesCreated: Int
+    let selectedRanges: Int
+    let stringoutTimeline: String
+    let stringoutRangesRequested: Int
+    let stringoutRangesAppended: Int
+    let remainderTimeline: String?
+    let remainderRangesRequested: Int
+    let remainderRangesAppended: Int
+    let indexedAssets: Int
+    let coverageComplete: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case project, profile, categories
+        case categoryTimelinesCreated = "category_timelines_created"
+        case selectedRanges = "selected_ranges"
+        case stringoutTimeline = "stringout_timeline"
+        case stringoutRangesRequested = "stringout_ranges_requested"
+        case stringoutRangesAppended = "stringout_ranges_appended"
+        case remainderTimeline = "remainder_timeline"
+        case remainderRangesRequested = "remainder_ranges_requested"
+        case remainderRangesAppended = "remainder_ranges_appended"
+        case indexedAssets = "indexed_assets"
+        case coverageComplete = "coverage_complete"
+    }
+}
+
 struct ActivityEntry: Identifiable, Hashable {
     let id = UUID()
     let date = Date()
@@ -304,6 +351,7 @@ enum ClaudeAction: String, Codable {
     case searchVisual = "search_visual"
     case searchTranscript = "search_transcript"
     case proposeSelects = "propose_selects"
+    case proposeSmartSelects = "propose_smart_selects"
     case prepareResolve = "prepare_resolve"
 }
 
@@ -313,6 +361,7 @@ struct ClaudeIntent: Codable, Equatable {
     let query: String?
     let timelineName: String?
     let searchMode: SearchMode?
+    let profile: String?
     let memoryUpdates: [ClaudeMemoryUpdate]
     let preHandleSeconds: Double?
     let postHandleSeconds: Double?
@@ -322,6 +371,7 @@ struct ClaudeIntent: Codable, Equatable {
         case message, action, query
         case timelineName = "timeline_name"
         case searchMode = "search_mode"
+        case profile
         case memoryUpdates = "memory_updates"
         case preHandleSeconds = "pre_handle_seconds"
         case postHandleSeconds = "post_handle_seconds"
@@ -331,6 +381,7 @@ struct ClaudeIntent: Codable, Equatable {
 
 enum PendingChatActionKind: String, Codable {
     case createSelects
+    case createSmartSelects
     case prepareResolve
 }
 
@@ -342,6 +393,7 @@ struct PendingChatAction: Identifiable, Hashable {
     let query: String?
     let timelineName: String?
     let searchMode: SearchMode?
+    let profile: String?
     let rangeCount: Int
 }
 

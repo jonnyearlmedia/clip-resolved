@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from .models import MediaAsset, Moment
@@ -10,6 +11,31 @@ from .semantic import hits_by_asset, search
 from .store import IndexStore
 from .synthcut import SynthCutClipBridge
 from .videohighlighter import VideoHighlighterAdapter
+
+
+@dataclass(frozen=True)
+class SelectsCategory:
+    timeline_name: str
+    query: str
+
+
+RESTAURANT_SELECTS_PROFILE: tuple[SelectsCategory, ...] = (
+    SelectsCategory("FOOD SHOTS SELECTS", "food dishes plated meals"),
+    SelectsCategory("EXTERIOR STOREFRONT SELECTS", "restaurant exterior storefront entrance"),
+    SelectsCategory("INTERIOR DINING ROOM SELECTS", "restaurant interior dining room"),
+    SelectsCategory("DRINKS SELECTS", "drinks beverages cocktails"),
+    SelectsCategory("SIGNAGE LOGO SELECTS", "restaurant sign signage logo"),
+    SelectsCategory("JAPANESE FOOD CLOSE UPS SELECTS", "Japanese food close up detail"),
+    SelectsCategory("SAKE BOTTLES SELECTS", "sake bottles"),
+)
+
+
+def selects_profile(name: str) -> tuple[SelectsCategory, ...]:
+    """Return a shoot-aware query recipe without limiting later arbitrary search."""
+    normalized = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    if normalized in {"restaurant", "restaurant-food", "food"}:
+        return RESTAURANT_SELECTS_PROFILE
+    raise ValueError(f"Unknown SELECTS profile: {name}. Available profile: restaurant")
 
 
 def default_timeline_name(query: str) -> str:
@@ -88,6 +114,34 @@ def unselected_moments(
                 )
             )
     return remainder
+
+
+def all_source_moments(assets: dict[str, MediaAsset]) -> list[Moment]:
+    """Return every indexed original in source order, full length, exactly once."""
+    moments: list[Moment] = []
+    for asset in sorted(assets.values(), key=lambda item: str(item.path)):
+        if asset.fps <= 0:
+            continue
+        total_frames = max(1, int(math.ceil(asset.duration * asset.fps)))
+        moments.append(
+            Moment(
+                asset_id=asset.id,
+                source_path=asset.path,
+                detected_start=0.0,
+                detected_end=asset.duration,
+                handled_start=0.0,
+                handled_end=asset.duration,
+                score=1.0,
+                query="all raw footage",
+                labels={"all raw footage", "stringout"},
+                provenance=["complete indexed original"],
+                metadata={
+                    "source_start_frame": 0,
+                    "source_end_frame": total_frames,
+                },
+            )
+        )
+    return moments
 
 
 def find_moments(

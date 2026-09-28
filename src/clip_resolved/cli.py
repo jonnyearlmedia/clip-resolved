@@ -14,9 +14,11 @@ from .synthcut import SynthCutClipBridge, SynthCutBridgeError
 from .transcript import index_transcripts, search_transcripts, transcript_moments
 from .videohighlighter import VideoHighlighterAdapter
 from .workflow import (
+    all_source_moments,
     default_remainder_timeline_name,
     default_timeline_name,
     find_moments,
+    selects_profile,
     unselected_moments,
 )
 
@@ -370,6 +372,151 @@ def cmd_selects(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_smart_selects(args: argparse.Namespace) -> int:
+    """Build a shoot-aware category package plus one exact global complement."""
+    project_root = Path(args.project_root).expanduser().resolve()
+    categories = selects_profile(args.profile)
+    category_results: list[dict] = []
+    all_selected = []
+
+    with IndexStore.for_project(project_root) as store, SynthCutClipBridge(_repo_root()) as bridge:
+        if store.asset_count() == 0:
+            raise RuntimeError("No indexed footage. Run clip-resolved index first.")
+        builder = VideoHighlighterAdapter(_repo_root())
+        assets = {asset.id: asset for asset in store.iter_assets()}
+        adapter = ResolveAdapter(_repo_root())
+        planned_categories = []
+
+        # Finish all semantic planning before the first Resolve mutation. This
+        # keeps an empty/overly strict profile from leaving a partial package.
+        for category in categories:
+            moments, _ = find_moments(
+                category.query,
+                store,
+                bridge,
+                builder,
+                search_limit=args.limit,
+                per_asset_limit=args.per_asset_limit,
+                min_score=args.min_score,
+                pre_handle=args.pre_handle,
+                post_handle=args.post_handle,
+                minimum_duration=args.minimum_duration,
+            )
+            planned_categories.append((category, moments))
+            all_selected.extend(moments)
+
+        if not all_selected:
+            print("No category moments found; Resolve was not changed.", file=sys.stderr)
+            return 2
+
+        stringout_result = adapter.create_selects_timeline(
+            args.stringout_timeline_name,
+            all_source_moments(assets),
+            assets,
+            project_root=project_root,
+        )
+
+        latest_snapshot = stringout_result.get("snapshot")
+        for category, moments in planned_categories:
+            if not moments:
+                category_results.append(
+                    {
+                        "name": category.timeline_name,
+                        "query": category.query,
+                        "timeline": None,
+                        "moments": 0,
+                        "ranges_requested": 0,
+                        "ranges_appended": 0,
+                    }
+                )
+                continue
+
+            result = adapter.create_selects_timeline(
+                category.timeline_name,
+                moments,
+                assets,
+                project_root=project_root,
+            )
+            latest_snapshot = result.get("snapshot") or latest_snapshot
+            category_results.append(
+                {
+                    "name": category.timeline_name,
+                    "query": category.query,
+                    "timeline": result["timeline"],
+                    "moments": len(moments),
+                    "ranges_requested": result["ranges_requested"],
+                    "ranges_appended": result["ranges_appended"],
+                }
+            )
+
+        remainder = unselected_moments(
+            all_selected,
+            assets,
+            query=f"{args.profile} smart selects package",
+        )
+        remainder_result = None
+        if remainder:
+            remainder_result = adapter.create_selects_timeline(
+                args.remainder_timeline_name,
+                remainder,
+                assets,
+                project_root=project_root,
+            )
+            latest_snapshot = remainder_result.get("snapshot") or latest_snapshot
+
+        created = [item for item in category_results if item["timeline"] is not None]
+        every_append_succeeded = (
+            stringout_result["ranges_requested"] == stringout_result["ranges_appended"]
+            and all(item["ranges_requested"] == item["ranges_appended"] for item in created)
+            and (
+                remainder_result is None
+                or remainder_result["ranges_requested"] == remainder_result["ranges_appended"]
+            )
+        )
+        _json_dump(
+            {
+                "project": stringout_result["project"],
+                "profile": args.profile,
+                "categories": category_results,
+                "category_timelines_created": len(created),
+                "selected_ranges": sum(item["ranges_appended"] for item in created),
+                "stringout_timeline": stringout_result["timeline"],
+                "stringout_ranges_requested": stringout_result["ranges_requested"],
+                "stringout_ranges_appended": stringout_result["ranges_appended"],
+                "remainder_timeline": remainder_result["timeline"] if remainder_result else None,
+                "remainder_ranges_requested": remainder_result["ranges_requested"] if remainder_result else 0,
+                "remainder_ranges_appended": remainder_result["ranges_appended"] if remainder_result else 0,
+                "indexed_assets": len(assets),
+                "coverage_complete": every_append_succeeded,
+                "snapshot": latest_snapshot,
+            }
+        )
+    return 0
+
+
+def cmd_raw_stringout(args: argparse.Namespace) -> int:
+    """Create one complete source-linked timeline for delivery/review."""
+    project_root = Path(args.project_root).expanduser().resolve()
+    with IndexStore.for_project(project_root) as store:
+        assets = {asset.id: asset for asset in store.iter_assets()}
+        if not assets:
+            raise RuntimeError("No indexed footage. Run clip-resolved index first.")
+        result = ResolveAdapter(_repo_root()).create_selects_timeline(
+            args.timeline_name,
+            all_source_moments(assets),
+            assets,
+            project_root=project_root,
+        )
+        result.update(
+            {
+                "indexed_assets": len(assets),
+                "complete_source_coverage": result["ranges_appended"] == len(assets),
+            }
+        )
+        _json_dump(result)
+    return 0
+
+
 def cmd_session(args: argparse.Namespace) -> int:
     """Keep the footage brain warm for a simple search-first editing session."""
     project_root = Path(args.project_root).expanduser().resolve()
@@ -583,6 +730,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not create the exact NOT SELECTED complement timeline",
     )
     selects.set_defaults(func=cmd_selects)
+
+    smart_selects = sub.add_parser(
+        "smart-selects",
+        help="Create a shoot-aware category SELECTS package and one global NOT SELECTED review timeline",
+    )
+    smart_selects.add_argument("--project-root", required=True)
+    smart_selects.add_argument("--profile", default="restaurant", choices=["restaurant"])
+    smart_selects.add_argument("--limit", type=int, default=80)
+    smart_selects.add_argument("--per-asset-limit", type=int, default=30)
+    smart_selects.add_argument("--min-score", type=float, default=0.22)
+    smart_selects.add_argument("--pre-handle", type=float, default=2.0)
+    smart_selects.add_argument("--post-handle", type=float, default=3.0)
+    smart_selects.add_argument("--minimum-duration", type=float, default=6.0)
+    smart_selects.add_argument(
+        "--stringout-timeline-name",
+        default="00 ALL RAW FOOTAGE STRINGOUT",
+        help="Name for the chronological full-length source timeline",
+    )
+    smart_selects.add_argument(
+        "--remainder-timeline-name",
+        default="ALL FOOTAGE NOT SELECTED REVIEW",
+        help="Name for the exact complement of the union of every category",
+    )
+    smart_selects.set_defaults(func=cmd_smart_selects)
+
+    raw_stringout = sub.add_parser(
+        "raw-stringout",
+        help="Create one chronological full-length timeline containing every indexed original once",
+    )
+    raw_stringout.add_argument("--project-root", required=True)
+    raw_stringout.add_argument("--timeline-name", default="00 ALL RAW FOOTAGE STRINGOUT")
+    raw_stringout.set_defaults(func=cmd_raw_stringout)
 
     session = sub.add_parser(
         "session",

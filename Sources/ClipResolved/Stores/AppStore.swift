@@ -349,6 +349,17 @@ final class AppStore {
                     proposeSelects: true,
                     timelineName: intent.timelineName
                 )
+            case .proposeSmartSelects:
+                pendingChatAction = PendingChatAction(
+                    projectID: project.id,
+                    kind: .createSmartSelects,
+                    title: "Build professional restaurant SELECTS package in Resolve",
+                    query: nil,
+                    timelineName: nil,
+                    searchMode: nil,
+                    profile: intent.profile ?? "restaurant",
+                    rangeCount: 0
+                )
             case .prepareResolve:
                 pendingChatAction = PendingChatAction(
                     projectID: project.id,
@@ -357,6 +368,7 @@ final class AppStore {
                     query: nil,
                     timelineName: nil,
                     searchMode: nil,
+                    profile: nil,
                     rangeCount: 0
                 )
             }
@@ -430,6 +442,7 @@ final class AppStore {
                     query: searchQuery,
                     timelineName: timelineName,
                     searchMode: mode,
+                    profile: nil,
                     rangeCount: results.count
                 )
             }
@@ -502,6 +515,22 @@ final class AppStore {
                     text: "Created \(result.timeline) in Resolve with \(result.rangesAppended) exact source range\(result.rangesAppended == 1 ? "" : "s").\(remainderSummary)"
                 )
                 log("Created \(result.timeline) from project chat")
+            case .createSmartSelects:
+                let result = try await backend.createSmartSelects(
+                    projectRoot: project.rootPath,
+                    profile: action.profile ?? "restaurant",
+                    minScore: minScore,
+                    pre: preHandle,
+                    post: postHandle,
+                    minimum: minimumDuration
+                )
+                resolveMessage = "Created \(result.categoryTimelinesCreated) organized SELECTS timelines"
+                appendChat(
+                    projectID: project.id,
+                    role: .assistant,
+                    text: smartSelectsSummary(result)
+                )
+                log("Created restaurant SELECTS package from project chat")
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -661,6 +690,37 @@ final class AppStore {
                 resolveMessage = "Created \(result.timeline)"
             }
         }
+    }
+
+    func createSmartSelects(profile: String = "restaurant") async {
+        guard let project = selectedProject else { return }
+        await perform("Building professional SELECTS package") {
+            let result = try await backend.createSmartSelects(
+                projectRoot: project.rootPath,
+                profile: profile,
+                minScore: minScore,
+                pre: preHandle,
+                post: postHandle,
+                minimum: minimumDuration
+            )
+            resolveMessage = "Created \(result.categoryTimelinesCreated) organized SELECTS timelines"
+            log(smartSelectsSummary(result))
+        }
+    }
+
+    private func smartSelectsSummary(_ result: SmartSelectsResult) -> String {
+        let created = result.categories.compactMap(\.timeline)
+        let skipped = result.categories.filter { $0.timeline == nil }.map(\.name)
+        var parts = [
+            "Created \(result.stringoutTimeline) with all \(result.stringoutRangesAppended) indexed original clips in source order.",
+            "Created \(result.categoryTimelinesCreated) category timeline\(result.categoryTimelinesCreated == 1 ? "" : "s") in Resolve: \(created.joined(separator: ", ")).",
+            "\(result.remainderTimeline ?? "ALL FOOTAGE NOT SELECTED REVIEW") contains \(result.remainderRangesAppended) exact source range\(result.remainderRangesAppended == 1 ? "" : "s") outside the union of those categories."
+        ]
+        if !skipped.isEmpty {
+            parts.append("Skipped empty categories: \(skipped.joined(separator: ", ")).")
+        }
+        parts.append(result.coverageComplete ? "The package accounts for the complete indexed source set." : "Coverage verification did not complete.")
+        return parts.joined(separator: " ")
     }
 
     func refreshSelectedProject() async {

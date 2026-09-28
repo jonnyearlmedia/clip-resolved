@@ -24,7 +24,7 @@ card/folder scan -> confirmed shoot groups -> checksum-verified Media/Osmo copy
   -> persistent SynthCut CLIP index + optional timed Whisper transcript
   -> arbitrary visual or spoken-word query
   -> VideoHighlighter regions + handled editorial ranges
-  -> Resolve AppendToTimeline exact source ranges -> SELECTS timeline
+  -> Resolve AppendToTimeline exact source ranges -> raw stringout + category SELECTS + review complement
 ```
 
 Detected moments are source ranges. They are not rendered into replacement MP4s.
@@ -126,6 +126,8 @@ Then it:
 - converts source seconds to half-open source-frame ranges
 - calls `MediaPool.AppendToTimeline(...)`
 - creates an exact source-frame `NOT SELECTED` complement timeline so the SELECTS pair accounts for all indexed footage
+- creates `00 ALL RAW FOOTAGE STRINGOUT` with every indexed original once for long-form delivery/review
+- creates the restaurant category package and computes one global review complement from the union of every category range
 - saves the current project
 - exports/updates the project-root `.drp` after scaffold and SELECTS changes
 - refuses unsaved projects and mismatched timeline/playback rates before mutation
@@ -177,6 +179,8 @@ clip-resolved selects \
 clip-resolved transcribe --project-root "/path/to/Test Project" --source "/path/to/originals"
 clip-resolved transcript-search --project-root "/path/to/Test Project" "spoken phrase"
 clip-resolved transcript-selects --project-root "/path/to/Test Project" "spoken phrase"
+clip-resolved smart-selects --project-root "/path/to/Test Project" --profile restaurant
+clip-resolved raw-stringout --project-root "/path/to/Test Project"
 ```
 
 `selects` changes the currently open Resolve project.
@@ -213,6 +217,7 @@ The unplanned query matters because Wideframe-style behavior is the actual targe
 - OSAKA: 65 original Osmo MP4s and 848 saved visual samples.
 - Multiple arbitrary post-index queries returned handled timestamped ranges without re-indexing.
 - Source-linked SELECTS timelines were appended in Resolve at matched 30/30 project rates.
+- The OSAKA restaurant package created seven category timelines, one 65-clip complete source stringout, and one global review complement; live Resolve readback confirmed every timeline item points to an original MP4 on the Extreme SSD.
 - SynthCut's Whisper bridge executed against real embedded Osmo audio; silent clips correctly produce no usable speech cues.
 - Native app builds, launches, and remains running as a normal macOS process.
 

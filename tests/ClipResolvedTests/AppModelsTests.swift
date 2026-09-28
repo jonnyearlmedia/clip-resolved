@@ -12,7 +12,7 @@ final class AppModelsTests: XCTestCase {
     }
 
     func testClaudeStructuredIntentDecodesWithMemory() throws {
-        let payload = #"{"is_error":false,"structured_output":{"message":"I will search the existing index.","action":"propose_selects","query":"food shots","timeline_name":"FOOD SHOTS SELECTS","search_mode":"Visual","memory_updates":[{"scope":"All projects","category":"Editing preference","content":"Use two-second pre-roll handles."}],"pre_handle_seconds":2,"post_handle_seconds":null,"minimum_duration_seconds":null}}"#
+        let payload = #"{"is_error":false,"structured_output":{"message":"I will search the existing index.","action":"propose_selects","query":"food shots","timeline_name":"FOOD SHOTS SELECTS","search_mode":"Visual","profile":null,"memory_updates":[{"scope":"All projects","category":"Editing preference","content":"Use two-second pre-roll handles."}],"pre_handle_seconds":2,"post_handle_seconds":null,"minimum_duration_seconds":null}}"#
         let intent = try ClaudeChatService.decodeIntent(Data(payload.utf8))
 
         XCTAssertEqual(intent.action, .proposeSelects)
@@ -22,6 +22,17 @@ final class AppModelsTests: XCTestCase {
         XCTAssertEqual(intent.memoryUpdates.first?.scope, .global)
         XCTAssertEqual(intent.memoryUpdates.first?.content, "Use two-second pre-roll handles.")
         XCTAssertEqual(intent.preHandleSeconds, 2)
+    }
+
+    func testSmartSelectsResultDecodesProfessionalPackage() throws {
+        let payload = #"{"project":"OSAKA","profile":"restaurant","categories":[{"name":"FOOD SHOTS SELECTS","query":"food dishes plated meals","timeline":"FOOD SHOTS SELECTS","moments":12,"ranges_requested":12,"ranges_appended":12}],"category_timelines_created":1,"selected_ranges":12,"stringout_timeline":"00 ALL RAW FOOTAGE STRINGOUT","stringout_ranges_requested":65,"stringout_ranges_appended":65,"remainder_timeline":"ALL FOOTAGE NOT SELECTED REVIEW","remainder_ranges_requested":20,"remainder_ranges_appended":20,"indexed_assets":65,"coverage_complete":true}"#
+        let result = try JSONDecoder().decode(SmartSelectsResult.self, from: Data(payload.utf8))
+
+        XCTAssertEqual(result.categoryTimelinesCreated, 1)
+        XCTAssertEqual(result.categories.first?.timeline, "FOOD SHOTS SELECTS")
+        XCTAssertEqual(result.stringoutTimeline, "00 ALL RAW FOOTAGE STRINGOUT")
+        XCTAssertEqual(result.remainderTimeline, "ALL FOOTAGE NOT SELECTED REVIEW")
+        XCTAssertTrue(result.coverageComplete)
     }
 
     func testProjectMemoryDoesNotBecomeGlobal() throws {
