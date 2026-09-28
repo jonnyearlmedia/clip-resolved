@@ -107,6 +107,20 @@ This provides a Wideframe-like footage conversation while keeping raw media loca
 Consequences:
 The chat provider remains replaceable. Claude receives text project context and search evidence but not original video files. Search can happen directly; Resolve changes require user confirmation.
 
+### Every SELECTS timeline has a complete review complement
+
+Status: accepted
+Date: 2026-09-28
+
+Decision:
+By default, creating a query SELECTS timeline also creates a paired `NOT SELECTED` review timeline. The review timeline contains the exact source-frame complement of the handled SELECTS ranges across every indexed source asset, including complete clips with no selected range.
+
+Why:
+Semantic retrieval can miss useful material. The editor needs the speed of AI SELECTS without footage silently disappearing from the working view.
+
+Consequences:
+The two timelines together account for the complete indexed source corpus. Both reference original Media Pool items; neither renders derivative video. Advanced CLI use may disable the complement explicitly with `--no-remainder`.
+
 ## Rejected assumptions
 
 ### "Import everything, then manually search for clips"

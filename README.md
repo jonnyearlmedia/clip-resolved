@@ -108,6 +108,8 @@ clip-resolved transcript-selects --project-root "/path/to/Test Project" "welcome
 
 The `index` command runs once per source change. New search wording does not re-index footage. SELECTS reference original MP4s; no replacement video is rendered.
 
+Every visual or transcript SELECTS creation also creates a paired `<QUERY> NOT SELECTED` review timeline by default. The second timeline is the exact source-frame complement of the handled SELECTS ranges across the complete indexed source set, including whole clips with no match. Together the pair accounts for the full source corpus without rendering or hiding footage. Pass `--no-remainder` only when that review timeline is intentionally unwanted.
+
 DaVinci Resolve remains the editing environment. Clip Resolved prepares originals, indexes, handled source ranges, and auxiliary SELECTS; it does not replace the NLE.
 
 ## OSS-first rule

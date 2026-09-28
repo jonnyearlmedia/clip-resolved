@@ -197,11 +197,19 @@ struct SelectsResult: Codable {
     let rangesAppended: Int
     let query: String
     let moments: Int
+    let remainderTimeline: String?
+    let remainderRangesRequested: Int?
+    let remainderRangesAppended: Int?
+    let coverageComplete: Bool?
 
     enum CodingKeys: String, CodingKey {
         case project, timeline, query, moments
         case rangesRequested = "ranges_requested"
         case rangesAppended = "ranges_appended"
+        case remainderTimeline = "remainder_timeline"
+        case remainderRangesRequested = "remainder_ranges_requested"
+        case remainderRangesAppended = "remainder_ranges_appended"
+        case coverageComplete = "coverage_complete"
     }
 }
 

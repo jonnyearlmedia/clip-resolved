@@ -52,7 +52,7 @@ actor ClaudeChatService {
     - answer: answer from the exact project status supplied in the prompt.
     - search_visual: find something visible in footage. Put a concise CLIP-friendly search phrase in query.
     - search_transcript: find words that were spoken. Put the requested phrase/topic in query.
-    - propose_selects: the user wants a Resolve SELECTS timeline. Supply query, a concise uppercase timeline_name ending in SELECTS, and Visual or Spoken words as search_mode. The app will search first and require confirmation before changing Resolve.
+    - propose_selects: the user wants a Resolve SELECTS timeline. Supply query, a concise uppercase timeline_name ending in SELECTS, and Visual or Spoken words as search_mode. The app will search first, require confirmation, then create both the main SELECTS and an exact NOT SELECTED source-frame complement for review.
     - prepare_resolve: the user explicitly asks to create, connect, import, or prepare the Resolve project. The app will require confirmation.
 
     Memory rules:

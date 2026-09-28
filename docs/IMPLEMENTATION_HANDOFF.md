@@ -125,6 +125,7 @@ Then it:
 - creates a SELECTS timeline
 - converts source seconds to half-open source-frame ranges
 - calls `MediaPool.AppendToTimeline(...)`
+- creates an exact source-frame `NOT SELECTED` complement timeline so the SELECTS pair accounts for all indexed footage
 - saves the current project
 - exports/updates the project-root `.drp` after scaffold and SELECTS changes
 - refuses unsaved projects and mismatched timeline/playback rates before mutation

@@ -175,6 +175,15 @@ class ResolveAdapter:
 
     @staticmethod
     def _source_frame_range(moment: Moment, asset: MediaAsset) -> tuple[int, int]:
+        explicit_start = moment.metadata.get("source_start_frame")
+        explicit_end = moment.metadata.get("source_end_frame")
+        if isinstance(explicit_start, int) and isinstance(explicit_end, int):
+            if explicit_start < 0 or explicit_end <= explicit_start:
+                raise ValueError(
+                    f"invalid explicit source frame range for {asset.path}: "
+                    f"{explicit_start}–{explicit_end}"
+                )
+            return explicit_start, explicit_end
         if moment.handled_start is None or moment.handled_end is None:
             raise ValueError("moment requires handled_start/handled_end before Resolve placement")
         fps = asset.fps

@@ -1,10 +1,14 @@
 from pathlib import Path
 
-from clip_resolved.models import MediaAsset, VisualSample
+from clip_resolved.models import MediaAsset, Moment, VisualSample
 from clip_resolved.semantic import sample_times, search
 from clip_resolved.store import IndexStore
 from clip_resolved.cli import _timecode
-from clip_resolved.workflow import default_timeline_name
+from clip_resolved.workflow import (
+    default_remainder_timeline_name,
+    default_timeline_name,
+    unselected_moments,
+)
 
 
 def asset(path: Path, *, size: int = 10, mtime_ns: int = 100) -> MediaAsset:
@@ -31,6 +35,54 @@ def test_sample_times_avoid_eof():
 def test_timeline_name_from_arbitrary_query():
     assert default_timeline_name("all the luxury cars") == "ALL THE LUXURY CARS SELECTS"
     assert default_timeline_name("chef / food close-ups!") == "CHEF FOOD CLOSE UPS SELECTS"
+    assert default_remainder_timeline_name("FOOD SHOTS SELECTS") == "FOOD SHOTS NOT SELECTED"
+
+
+def test_unselected_moments_are_exact_source_frame_complement(tmp_path: Path):
+    first = asset(tmp_path / "DJI_0001.MP4")
+    second = MediaAsset(
+        **{
+            **first.__dict__,
+            "id": "asset-2",
+            "path": tmp_path / "DJI_0002.MP4",
+            "duration": 5.0,
+        }
+    )
+    selected = [
+        Moment(
+            asset_id=first.id,
+            source_path=first.path,
+            detected_start=2.1,
+            detected_end=4.2,
+            handled_start=2.1,
+            handled_end=4.2,
+            score=0.5,
+            query="food",
+        )
+    ]
+
+    remainder = unselected_moments(
+        selected,
+        {first.id: first, second.id: second},
+        query="food",
+    )
+    frame_ranges = [
+        (
+            moment.asset_id,
+            moment.metadata["source_start_frame"],
+            moment.metadata["source_end_frame"],
+        )
+        for moment in remainder
+    ]
+
+    assert frame_ranges == [
+        ("asset-1", 0, 126),
+        ("asset-1", 252, 1200),
+        ("asset-2", 0, 300),
+    ]
+    selected_frames = 252 - 126
+    remainder_frames = sum(end - start for _, start, end in frame_ranges)
+    assert selected_frames + remainder_frames == 1200 + 300
 
 
 def test_timecode_is_editor_readable():

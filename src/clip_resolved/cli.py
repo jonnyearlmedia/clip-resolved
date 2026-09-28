@@ -13,7 +13,12 @@ from .store import IndexStore
 from .synthcut import SynthCutClipBridge, SynthCutBridgeError
 from .transcript import index_transcripts, search_transcripts, transcript_moments
 from .videohighlighter import VideoHighlighterAdapter
-from .workflow import default_timeline_name, find_moments
+from .workflow import (
+    default_remainder_timeline_name,
+    default_timeline_name,
+    find_moments,
+    unselected_moments,
+)
 
 
 def _repo_root() -> Path:
@@ -227,8 +232,14 @@ def cmd_transcript_selects(args: argparse.Namespace) -> int:
             print("No matching transcript moments found; Resolve was not changed.", file=sys.stderr)
             return 2
         timeline_name = args.timeline_name or default_timeline_name(args.query)
-        result = ResolveAdapter(_repo_root()).create_selects_timeline(
-            timeline_name, moments, assets, project_root=Path(args.project_root)
+        result = _create_selects_with_remainder(
+            timeline_name=timeline_name,
+            moments=moments,
+            assets=assets,
+            project_root=Path(args.project_root),
+            query=args.query,
+            create_remainder=not args.no_remainder,
+            remainder_name=args.remainder_timeline_name,
         )
         result["query"] = args.query
         result["moments"] = len(moments)
@@ -275,6 +286,55 @@ def _moments_for_args(args: argparse.Namespace):
         raise
 
 
+def _create_selects_with_remainder(
+    *,
+    timeline_name: str,
+    moments,
+    assets,
+    project_root: Path,
+    query: str,
+    create_remainder: bool,
+    remainder_name: str | None,
+) -> dict:
+    adapter = ResolveAdapter(_repo_root())
+    result = adapter.create_selects_timeline(
+        timeline_name, moments, assets, project_root=project_root
+    )
+    result.update(
+        {
+            "remainder_timeline": None,
+            "remainder_ranges_requested": 0,
+            "remainder_ranges_appended": 0,
+            "coverage_complete": False,
+        }
+    )
+    if not create_remainder:
+        return result
+
+    remainder = unselected_moments(moments, assets, query=query)
+    if remainder:
+        requested_name = remainder_name or default_remainder_timeline_name(timeline_name)
+        remainder_result = adapter.create_selects_timeline(
+            requested_name, remainder, assets, project_root=project_root
+        )
+        result.update(
+            {
+                "remainder_timeline": remainder_result["timeline"],
+                "remainder_ranges_requested": remainder_result["ranges_requested"],
+                "remainder_ranges_appended": remainder_result["ranges_appended"],
+                "coverage_complete": (
+                    remainder_result["ranges_requested"]
+                    == remainder_result["ranges_appended"]
+                ),
+                "snapshot": remainder_result.get("snapshot") or result.get("snapshot"),
+                "snapshot_exported": bool(remainder_result.get("snapshot_exported")),
+            }
+        )
+    else:
+        result["coverage_complete"] = True
+    return result
+
+
 def cmd_moments(args: argparse.Namespace) -> int:
     store, bridge, moments, _assets = _moments_for_args(args)
     try:
@@ -292,8 +352,14 @@ def cmd_selects(args: argparse.Namespace) -> int:
             print("No candidate moments found; Resolve was not changed.", file=sys.stderr)
             return 2
         timeline_name = args.timeline_name or default_timeline_name(args.query)
-        result = ResolveAdapter(_repo_root()).create_selects_timeline(
-            timeline_name, moments, assets, project_root=Path(args.project_root)
+        result = _create_selects_with_remainder(
+            timeline_name=timeline_name,
+            moments=moments,
+            assets=assets,
+            project_root=Path(args.project_root),
+            query=args.query,
+            create_remainder=not args.no_remainder,
+            remainder_name=args.remainder_timeline_name,
         )
         result["query"] = args.query
         result["moments"] = len(moments)
@@ -381,12 +447,21 @@ def cmd_session(args: argparse.Namespace) -> int:
             if choice.lower() in {"n", "no"}:
                 continue
             timeline_name = default_name if choice.lower() in {"", "y", "yes"} else choice
-            result = resolve_adapter.create_selects_timeline(
-                timeline_name, moments, assets, project_root=project_root
+            result = _create_selects_with_remainder(
+                timeline_name=timeline_name,
+                moments=moments,
+                assets=assets,
+                project_root=project_root,
+                query=query,
+                create_remainder=True,
+                remainder_name=None,
             )
             print(
                 f"Created {result['timeline']} — "
-                f"{result['ranges_appended']} source range{'s' if result['ranges_appended'] != 1 else ''}."
+                f"{result['ranges_appended']} source range{'s' if result['ranges_appended'] != 1 else ''}; "
+                f"created {result['remainder_timeline']} with "
+                f"{result['remainder_ranges_appended']} remaining range"
+                f"{'s' if result['remainder_ranges_appended'] != 1 else ''}."
             )
 
     return 0
@@ -474,6 +549,12 @@ def build_parser() -> argparse.ArgumentParser:
     transcript_selects.add_argument("--pre-handle", type=float, default=1.0)
     transcript_selects.add_argument("--post-handle", type=float, default=1.5)
     transcript_selects.add_argument("--minimum-duration", type=float, default=4.0)
+    transcript_selects.add_argument("--remainder-timeline-name")
+    transcript_selects.add_argument(
+        "--no-remainder",
+        action="store_true",
+        help="Do not create the exact NOT SELECTED complement timeline",
+    )
     transcript_selects.set_defaults(func=cmd_transcript_selects)
 
     transcript_moment_parser = sub.add_parser(
@@ -495,6 +576,12 @@ def build_parser() -> argparse.ArgumentParser:
     selects = sub.add_parser("selects", help="Create a Resolve SELECTS timeline from a semantic query")
     _add_moment_args(selects)
     selects.add_argument("--timeline-name", help="Override the generated '<QUERY> SELECTS' name")
+    selects.add_argument("--remainder-timeline-name")
+    selects.add_argument(
+        "--no-remainder",
+        action="store_true",
+        help="Do not create the exact NOT SELECTED complement timeline",
+    )
     selects.set_defaults(func=cmd_selects)
 
     session = sub.add_parser(

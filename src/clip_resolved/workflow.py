@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
@@ -15,6 +16,78 @@ def default_timeline_name(query: str) -> str:
     words = re.sub(r"[^A-Za-z0-9]+", " ", query).strip().upper()
     words = re.sub(r"\s+", " ", words)
     return f"{words or 'QUERY'} SELECTS"
+
+
+def default_remainder_timeline_name(selects_name: str) -> str:
+    base = re.sub(r"\s+SELECTS$", "", selects_name.strip(), flags=re.IGNORECASE)
+    return f"{base or 'QUERY'} NOT SELECTED"
+
+
+def unselected_moments(
+    selected: list[Moment],
+    assets: dict[str, MediaAsset],
+    *,
+    query: str,
+) -> list[Moment]:
+    """Return the exact source-frame complement of handled SELECTS ranges."""
+    selected_frames: dict[str, list[tuple[int, int]]] = {}
+    for moment in selected:
+        asset = assets.get(moment.asset_id)
+        if asset is None or asset.fps <= 0:
+            continue
+        start_seconds = moment.handled_start if moment.handled_start is not None else moment.detected_start
+        end_seconds = moment.handled_end if moment.handled_end is not None else moment.detected_end
+        start = max(0, int(math.floor(start_seconds * asset.fps)))
+        end = max(start + 1, int(math.ceil(end_seconds * asset.fps)))
+        total = max(1, int(math.ceil(asset.duration * asset.fps)))
+        selected_frames.setdefault(asset.id, []).append((min(start, total), min(end, total)))
+
+    remainder: list[Moment] = []
+    for asset in sorted(assets.values(), key=lambda item: str(item.path)):
+        if asset.fps <= 0:
+            continue
+        total = max(1, int(math.ceil(asset.duration * asset.fps)))
+        merged: list[list[int]] = []
+        for start, end in sorted(selected_frames.get(asset.id, [])):
+            if start >= end:
+                continue
+            if merged and start <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+
+        cursor = 0
+        gaps: list[tuple[int, int]] = []
+        for start, end in merged:
+            if cursor < start:
+                gaps.append((cursor, start))
+            cursor = max(cursor, end)
+        if cursor < total:
+            gaps.append((cursor, total))
+
+        for start, end in gaps:
+            start_seconds = start / asset.fps
+            end_seconds = end / asset.fps
+            remainder.append(
+                Moment(
+                    asset_id=asset.id,
+                    source_path=asset.path,
+                    detected_start=start_seconds,
+                    detected_end=end_seconds,
+                    handled_start=start_seconds,
+                    handled_end=end_seconds,
+                    score=0.0,
+                    query=f"{query} — not selected",
+                    labels={"not selected"},
+                    provenance=["exact source-frame complement"],
+                    metadata={
+                        "source_start_frame": start,
+                        "source_end_frame": end,
+                        "complement_of": query,
+                    },
+                )
+            )
+    return remainder
 
 
 def find_moments(

@@ -490,11 +490,16 @@ final class AppStore {
                         minimum: minimumDuration
                     )
                 }
-                resolveMessage = "Created \(result.timeline)"
+                resolveMessage = result.remainderTimeline == nil
+                    ? "Created \(result.timeline)"
+                    : "Created SELECTS + NOT SELECTED"
+                let remainderSummary = result.remainderTimeline.map {
+                    " I also created \($0) with \(result.remainderRangesAppended ?? 0) exact source ranges covering everything outside the main SELECTS."
+                } ?? ""
                 appendChat(
                     projectID: project.id,
                     role: .assistant,
-                    text: "Created \(result.timeline) in Resolve with \(result.rangesAppended) exact source range\(result.rangesAppended == 1 ? "" : "s")."
+                    text: "Created \(result.timeline) in Resolve with \(result.rangesAppended) exact source range\(result.rangesAppended == 1 ? "" : "s").\(remainderSummary)"
                 )
                 log("Created \(result.timeline) from project chat")
             }
@@ -649,7 +654,12 @@ final class AppStore {
                 )
             }
             log("Created \(result.timeline) in Resolve with \(result.rangesAppended) source ranges")
-            resolveMessage = "Created \(result.timeline)"
+            if let remainder = result.remainderTimeline {
+                log("Created \(remainder) with \(result.remainderRangesAppended ?? 0) unselected source ranges")
+                resolveMessage = "Created SELECTS + NOT SELECTED"
+            } else {
+                resolveMessage = "Created \(result.timeline)"
+            }
         }
     }
 

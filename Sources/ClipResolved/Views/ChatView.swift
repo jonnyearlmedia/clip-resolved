@@ -249,7 +249,7 @@ private struct PendingActionView: View {
             Label(action.title, systemImage: "checkmark.shield")
                 .font(.headline)
             if action.rangeCount > 0 {
-                Text("This will append \(action.rangeCount) handled ranges from the original source files. No new video files will be rendered.")
+                Text("This will append \(action.rangeCount) handled ranges to the main SELECTS and create a NOT SELECTED timeline containing the exact source-frame remainder. No new video files will be rendered.")
                     .foregroundStyle(.secondary)
             } else {
                 Text("This will connect to the open saved Resolve project, import originals, and create the required bins.")

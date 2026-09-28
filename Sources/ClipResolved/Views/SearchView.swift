@@ -91,9 +91,10 @@ struct SearchView: View {
                         TextField("SELECTS timeline name", text: $store.timelineName)
                         Text("\(store.moments.count) ranges")
                             .foregroundStyle(.secondary)
-                        Button("Create in Resolve") { Task { await store.createSelects() } }
+                        Button("Create Pair in Resolve") { Task { await store.createSelects() } }
                             .buttonStyle(.borderedProminent)
                             .disabled(store.timelineName.isEmpty || store.isBusy)
+                            .help("Create the main SELECTS plus a NOT SELECTED review timeline covering all remaining source frames")
                     }
                     .padding(16)
                 }
