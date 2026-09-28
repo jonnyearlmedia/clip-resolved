@@ -33,6 +33,7 @@ The product combines a persistent multimodal footage index with deterministic Re
 - Protect and preserve original media; verified ingest never erases the card.
 - Treat a card as a container that can include more than one shoot.
 - Allow later cards and cameras to join an existing project without rebuilding prior index work.
+- Detect mounted camera and recorder media automatically, switch to ingest, and run the lightweight read-only session scan without requiring a manual folder-selection step.
 - Keep one canonical working copy per source and organize it by source/camera.
 - Reuse the integrated SynthCut, VideoHighlighter, SD-Offload, and Resolve implementations.
 - Search results must include representative frames, exact time ranges, and in-window playback.

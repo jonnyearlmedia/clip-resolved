@@ -1,4 +1,6 @@
 import XCTest
+import OffloadCore
+@testable import OffloadEngine
 @testable import ClipResolved
 
 final class AppModelsTests: XCTestCase {
@@ -91,6 +93,54 @@ final class AppModelsTests: XCTestCase {
         XCTAssertEqual(ProjectRecord.inferSourceLabel("/Volumes/DJI MIC 2", kind: .audio), "DJI MIC 2")
         XCTAssertEqual(ProjectRecord.inferSourceLabel("/Volumes/DJI MIC MINI", kind: .audio), "DJI MIC MINI")
         XCTAssertEqual(ProjectRecord.inferSourceLabel("/Volumes/OSMO", kind: .camera), "OSMO")
+    }
+
+    @MainActor
+    func testDetectedCardImmediatelyBecomesActiveIngestSource() {
+        let store = AppStore(startServices: false)
+        store.activeProjectsRoot = "/Volumes/Extreme SSD/ACTIVE PROJECTS"
+        store.selection = .project
+        let card = CardInfo(
+            volumeUUID: "camera-card",
+            bsdName: "disk99s1",
+            mountPath: "/Volumes/OSMO CARD",
+            volumeName: "OSMO CARD",
+            capacityBytes: 64_000,
+            freeBytes: 32_000,
+            hasMediaRoot: true
+        )
+
+        XCTAssertTrue(store.prepareDetectedMedia(card))
+        XCTAssertEqual(store.sourcePath, card.mountPath)
+        XCTAssertEqual(store.selection, .ingest)
+        XCTAssertTrue(store.progressMessage.contains("Reading media metadata"))
+    }
+
+    @MainActor
+    func testDestinationDriveIsNeverMistakenForInsertedSourceMedia() {
+        let store = AppStore(startServices: false)
+        store.activeProjectsRoot = "/Volumes/Extreme SSD/ACTIVE PROJECTS"
+        let destinationDrive = CardInfo(
+            volumeUUID: "destination-drive",
+            bsdName: "disk4s1",
+            mountPath: "/Volumes/Extreme SSD",
+            volumeName: "Extreme SSD",
+            capacityBytes: 1_000_000,
+            freeBytes: 20_000,
+            hasMediaRoot: false
+        )
+
+        XCTAssertFalse(store.prepareDetectedMedia(destinationDrive))
+    }
+
+    func testWatcherRecognizesShallowMicRecorderAudioWithoutDCIM() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let recordingFolder = root.appendingPathComponent("RECORD", isDirectory: true)
+        try FileManager.default.createDirectory(at: recordingFolder, withIntermediateDirectories: true)
+        try Data("audio-fixture".utf8).write(to: recordingFolder.appendingPathComponent("DJI_001.WAV"))
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertTrue(CardWatcher.containsSupportedMedia(at: root.path, hasMediaRoot: false))
     }
 
     func testVerifiedOffloadCopiesAndPreservesSource() async throws {

@@ -113,22 +113,48 @@ final class AppStore {
             for await event in watcher.events {
                 switch event {
                 case .volumeMounted(let candidate):
-                    guard candidate.info.hasMediaRoot, !candidate.isInternal, !candidate.isNetwork else { continue }
+                    guard !candidate.isInternal, !candidate.isNetwork else { continue }
+                    guard !isDestinationVolume(candidate.info.mountPath) else { continue }
                     if !cards.contains(where: { $0.volumeUUID == candidate.info.volumeUUID }) {
                         cards.append(candidate.info)
-                        log("Detected camera media: \(candidate.info.volumeName)")
+                        log("Detected media: \(candidate.info.volumeName). Scanning automatically…")
+                    }
+                    if isBusy {
+                        log("\(candidate.info.volumeName) is ready; automatic scan is waiting for the current job")
+                    } else {
+                        await activateDetectedMedia(candidate.info)
                     }
                 case .volumeUnmounted(let uuid, _):
                     cards.removeAll { $0.volumeUUID == uuid }
-                    log("Camera media disconnected")
+                    log("Media disconnected")
                 }
             }
         }
     }
 
     func useCard(_ card: CardInfo) {
+        Task { await activateDetectedMedia(card) }
+    }
+
+    func prepareDetectedMedia(_ card: CardInfo) -> Bool {
+        guard !isDestinationVolume(card.mountPath) else { return false }
         sourcePath = card.mountPath
-        Task { await scanSource() }
+        scanPayload = nil
+        shootGroups = []
+        selection = .ingest
+        progressMessage = "Detected \(card.volumeName). Reading media metadata…"
+        return true
+    }
+
+    private func activateDetectedMedia(_ card: CardInfo) async {
+        guard prepareDetectedMedia(card) else { return }
+        await scanSource()
+    }
+
+    private func isDestinationVolume(_ mountPath: String) -> Bool {
+        let mount = URL(fileURLWithPath: mountPath).standardizedFileURL.path
+        let destination = URL(fileURLWithPath: activeProjectsRoot).standardizedFileURL.path
+        return destination == mount || destination.hasPrefix(mount + "/")
     }
 
     func scanSource() async {
@@ -150,7 +176,8 @@ final class AppStore {
                     end: $0.end
                 )
             }
-            log("Found \(payload.videoCount) videos in \(payload.groups.count) proposed shoot group(s)")
+            let sessionWord = payload.groups.count == 1 ? "session" : "sessions"
+            log("Automatically separated \(payload.videoCount) videos and \(payload.audioCount) audio files into \(payload.groups.count) proposed \(sessionWord)")
             if payload.audioCount > 0 {
                 log("Found \(payload.audioCount) external audio file(s)")
             }

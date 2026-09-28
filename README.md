@@ -86,8 +86,8 @@ Visual search results are reviewable inside the app, not just filenames and time
 Use **Project** as the control room:
 
 1. Click **New**, name the project, and choose Restaurant / Hospitality, Interview / Community Story, or Event / Family. No media needs to be connected yet. **Open Existing** remains available for projects already on disk.
-2. Open **Import Media**, choose that project as the destination, then scan and checksum-verify each camera card one at a time. Repeat for every later card; existing index data is retained.
-3. Plug in each external recorder card, scan it the same way, label it (for example `DJI MIC 2 A`), and add it to the existing project. Audio-only cards are stored separately under `Audio/<RECORDER>` and are not sent through the visual index.
+2. Plug in a camera card. Clip Resolved detects it, opens **Import Media**, runs the read-only technical scan, and proposes separate shooting sessions automatically. Confirm or correct the sessions, choose the project destination, then begin the checksum-verified ingest. Repeat for every later card; existing index data is retained.
+3. Plug in each external recorder card. Audio-only cards are detected and separated into recorder sessions the same way; label them (for example `DJI MIC 2 A`) and add them to the existing project. They are stored separately under `Audio/<RECORDER>` and are not sent through the visual index.
 4. Click **Prepare Resolve** to create source-labelled footage/audio bins and import originals.
 5. For external recorder files, click **Sync External Audio** to use Resolve waveform sync while retaining embedded camera audio.
 6. With two or more camera sources, click **Create Multicam** and choose audio or timecode sync. Non-overlapping clips remain in the chronological source set rather than being forced into fake overlap.

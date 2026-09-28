@@ -21,7 +21,11 @@ let package = Package(
         ),
         .testTarget(
             name: "ClipResolvedTests",
-            dependencies: ["ClipResolved"],
+            dependencies: [
+                "ClipResolved",
+                .product(name: "OffloadCore", package: "SD-Offload"),
+                .product(name: "OffloadEngine", package: "SD-Offload"),
+            ],
             path: "Tests/ClipResolvedTests"
         ),
     ],

@@ -67,6 +67,10 @@ clone_pin \
   "1d72b3e632f81f5ac361e077d6f9d74764b2bec3" \
   "$EXTERNAL/SD-Offload"
 
+echo "==> applying Clip Resolved SD-Offload integration patches"
+git -C "$EXTERNAL/SD-Offload" apply \
+  "$ROOT/patches/SD-Offload/0001-detect-shallow-recorder-media.patch"
+
 echo "==> installing SynthCut workspace dependencies"
 (
   cd "$EXTERNAL/SynthCut"

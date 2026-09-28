@@ -1,0 +1,71 @@
+diff --git a/Sources/OffloadEngine/CardWatcher.swift b/Sources/OffloadEngine/CardWatcher.swift
+index 6987fdf..445a9fb 100644
+--- a/Sources/OffloadEngine/CardWatcher.swift
++++ b/Sources/OffloadEngine/CardWatcher.swift
+@@ -23,6 +23,10 @@ public struct CandidateVolume: Sendable {
+ /// Verified on this machine: the built-in reader enumerates as Protocol "USB",
+ /// so we never classify by protocol string — removable/ejectable + DCIM only.
+ public final class CardWatcher: @unchecked Sendable {
++    private static let supportedMediaExtensions: Set<String> = [
++        "mp4", "mov", "mxf", "m4v", "insv",
++        "wav", "m4a", "mp3", "aif", "aiff", "flac",
++    ]
+     private var daSession: DASession?
+     private let daQueue = DispatchQueue(label: "offload.diskarb")
+     private var continuation: AsyncStream<RawCardEvent>.Continuation!
+@@ -180,6 +184,35 @@ public final class CardWatcher: @unchecked Sendable {
+         return out
+     }
+ 
++    /// Camera cards normally expose a known media root such as DCIM. Standalone
++    /// recorder volumes (including DJI Mic media) may instead keep audio at the
++    /// volume root or in a shallow RECORD-style directory. Probe only a few
++    /// levels so a mounted working drive is not recursively crawled.
++    static func containsSupportedMedia(at mountPath: String, hasMediaRoot: Bool) -> Bool {
++        if hasMediaRoot { return true }
++        let root = URL(fileURLWithPath: mountPath, isDirectory: true)
++        let rootDepth = root.standardizedFileURL.pathComponents.count
++        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey]
++        guard let enumerator = FileManager.default.enumerator(
++            at: root,
++            includingPropertiesForKeys: Array(keys),
++            options: [.skipsHiddenFiles, .skipsPackageDescendants]
++        ) else { return false }
++        for case let url as URL in enumerator {
++            let depth = url.standardizedFileURL.pathComponents.count - rootDepth
++            guard let values = try? url.resourceValues(forKeys: keys) else { continue }
++            if values.isDirectory == true, depth >= 3 {
++                enumerator.skipDescendants()
++                continue
++            }
++            if values.isRegularFile == true,
++               supportedMediaExtensions.contains(url.pathExtension.lowercased()) {
++                return true
++            }
++        }
++        return false
++    }
++
+     private func handlePossibleMount(_ disk: DADisk) {
+         guard let desc = DADiskCopyDescription(disk) as? [CFString: Any] else { return }
+         guard let bsdName = DADiskGetBSDName(disk).map({ String(cString: $0) }) else { return }
+@@ -245,6 +278,10 @@ public final class CardWatcher: @unchecked Sendable {
+                 var isDir: ObjCBool = false
+                 return FileManager.default.fileExists(atPath: mountPath + "/" + root, isDirectory: &isDir) && isDir.boolValue
+             }
++            let hasSupportedMedia = Self.containsSupportedMedia(
++                at: mountPath,
++                hasMediaRoot: hasMediaRoot
++            )
+             let fs = statfsInfo(path: mountPath)
+             let info = CardInfo(volumeUUID: uuid, bsdName: bsdName, mountPath: mountPath,
+                                 volumeName: name,
+@@ -261,7 +298,7 @@ public final class CardWatcher: @unchecked Sendable {
+                     && statfs(pathURL.path, &currentMount) == 0
+                     && "\(currentMount.f_fsid.val.0):\(currentMount.f_fsid.val.1)" == identity.mountID
+                 if self.probes.complete(device: bsdName, probe: probe,
+-                                        ready: hasMediaRoot && stillMounted) {
++                                        ready: hasSupportedMedia && stillMounted) {
+                     self.continuation.yield(.volumeMounted(candidate))
+                 }
+             }

@@ -6,7 +6,7 @@ struct IngestView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                PageHeader(title: "Import Media", subtitle: "Scan read-only, confirm each camera or recorder source, then copy and checksum-verify it into the chosen project.")
+                PageHeader(title: "Import Media", subtitle: "Plug in a camera or recorder card. Clip Resolved detects it, scans read-only, and separates likely sessions for you to confirm.")
 
                 if !store.cards.isEmpty {
                     GroupBox("Detected removable media") {
@@ -19,7 +19,11 @@ struct IngestView: View {
                                         Text(card.mountPath).font(.caption).foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    Button("Use Card") { store.useCard(card) }
+                                    if store.sourcePath == card.mountPath, store.scanPayload != nil {
+                                        Label("Scanned", systemImage: "checkmark.circle.fill")
+                                            .foregroundStyle(.green)
+                                    }
+                                    Button("Rescan") { store.useCard(card) }
                                 }
                             }
                         }
@@ -28,16 +32,21 @@ struct IngestView: View {
                 }
 
                 GroupBox("Source") {
-                    HStack {
-                        TextField("Camera, recorder card, or existing media folder", text: $store.sourcePath)
-                        Button("Choose…") {
-                            if let url = FolderPicker.chooseFolder(prompt: "Choose a camera, recorder card, or media folder", startingAt: store.sourcePath) {
-                                store.sourcePath = url.path
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Cards scan automatically. Use this only for media already copied to a folder.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            TextField("Existing media folder", text: $store.sourcePath)
+                            Button("Choose Folder…") {
+                                if let url = FolderPicker.chooseFolder(prompt: "Choose an existing media folder", startingAt: store.sourcePath) {
+                                    store.sourcePath = url.path
+                                }
                             }
+                            Button("Scan Folder") { Task { await store.scanSource() } }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(store.sourcePath.isEmpty || store.isBusy)
                         }
-                        Button("Scan") { Task { await store.scanSource() } }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(store.sourcePath.isEmpty || store.isBusy)
                     }
                 }
 
@@ -88,7 +97,7 @@ struct IngestView: View {
                                         Text(file.kind == "audio" ? "Audio" : "\(file.fps, specifier: "%.2f") fps")
                                             .font(.caption.monospacedDigit())
                                             .foregroundStyle(.secondary)
-                                        if group.sourceKind == .camera {
+                                        if group.sourceKind == .camera, file.kind == "video" {
                                             Menu("Assign") {
                                             if group.videos.count > 1 {
                                                 Button("Split to New Shoot") {
