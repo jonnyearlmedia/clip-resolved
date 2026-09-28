@@ -16,9 +16,9 @@ struct ClipResolvedApp: App {
     var body: some Scene {
         WindowGroup("Clip Resolved", id: "main") {
             ContentView(store: store)
-                .frame(minWidth: 1040, minHeight: 700)
+                .frame(minWidth: 860, minHeight: 620)
         }
-        .defaultSize(width: 1240, height: 820)
+        .defaultSize(width: 1320, height: 860)
         .commands {
             CommandMenu("Clip Resolved") {
                 Button("Scan Source") {

@@ -32,6 +32,10 @@ final class FootagePreviewSidebarController: NSViewController {
 
     private let onClose: () -> Void
     private var loadingTask: Task<Void, Never>?
+    private weak var modeLabel: NSTextField?
+    private weak var replayButton: NSButton?
+    private weak var sourceToggleButton: NSButton?
+    private var showingFullSource = false
 
     init(evidence: ChatEvidence, onClose: @escaping () -> Void = {}) {
         self.evidence = evidence
@@ -54,6 +58,8 @@ final class FootagePreviewSidebarController: NSViewController {
     }
 
     func prepareAndPlay() {
+        showingFullSource = false
+        updateModeControls()
         loadingTask?.cancel()
         let sourceURL = URL(fileURLWithPath: evidence.sourcePath)
         let start = max(0, evidence.start)
@@ -68,7 +74,9 @@ final class FootagePreviewSidebarController: NSViewController {
     }
 
     func replayMatch() {
-        player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { [weak player] finished in
+        let destination = showingFullSource ? evidence.start : 0
+        let time = CMTime(seconds: max(0, destination), preferredTimescale: 600)
+        player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak player] finished in
             if finished { player?.play() }
         }
     }
@@ -99,6 +107,7 @@ final class FootagePreviewSidebarController: NSViewController {
         )
         range.font = .systemFont(ofSize: 11, weight: .semibold)
         range.textColor = .systemBlue
+        modeLabel = range
 
         let sourceRange = NSTextField(
             labelWithString: "Source \(evidence.start.editorTimecode) – \(evidence.end.editorTimecode)"
@@ -126,15 +135,24 @@ final class FootagePreviewSidebarController: NSViewController {
         playerView.showsFullScreenToggleButton = false
         playerView.translatesAutoresizingMaskIntoConstraints = false
 
-        let replay = NSButton(title: "Replay Selected Moment", target: self, action: #selector(replayPressed))
+        let replay = NSButton(title: "Replay Range", target: self, action: #selector(replayPressed))
         replay.bezelStyle = .rounded
+        replayButton = replay
 
-        let reveal = NSButton(title: "Reveal Original MP4", target: self, action: #selector(revealPressed))
+        let toggleSource = NSButton(title: "View Full Source", target: self, action: #selector(toggleSourcePressed))
+        toggleSource.bezelStyle = .rounded
+        sourceToggleButton = toggleSource
+
+        let reveal = NSButton(title: "Reveal in Finder", target: self, action: #selector(revealPressed))
         reveal.bezelStyle = .rounded
 
-        let controls = NSStackView(views: [replay, reveal])
-        controls.orientation = .horizontal
-        controls.alignment = .centerY
+        let playbackControls = NSStackView(views: [replay, toggleSource])
+        playbackControls.orientation = .horizontal
+        playbackControls.alignment = .centerY
+        playbackControls.spacing = 8
+        let controls = NSStackView(views: [playbackControls, reveal])
+        controls.orientation = .vertical
+        controls.alignment = .leading
         controls.spacing = 8
 
         let note = NSTextField(
@@ -154,14 +172,14 @@ final class FootagePreviewSidebarController: NSViewController {
             content.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
             content.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
             content.topAnchor.constraint(equalTo: root.topAnchor, constant: 20),
-            content.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -20),
+            content.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -20),
             heading.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             heading.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             divider.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             divider.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             playerView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             playerView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            playerView.heightAnchor.constraint(equalToConstant: 360),
+            playerView.heightAnchor.constraint(equalTo: playerView.widthAnchor, multiplier: 9.0 / 16.0),
             controls.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             note.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             note.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -199,12 +217,33 @@ final class FootagePreviewSidebarController: NSViewController {
         replayMatch()
     }
 
+    @objc private func toggleSourcePressed() {
+        loadingTask?.cancel()
+        let sourceURL = URL(fileURLWithPath: evidence.sourcePath)
+        if showingFullSource {
+            prepareAndPlay()
+            return
+        }
+        showingFullSource = true
+        updateModeControls()
+        player.replaceCurrentItem(with: AVPlayerItem(url: sourceURL))
+        replayMatch()
+    }
+
     @objc private func revealPressed() {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: evidence.sourcePath)])
     }
 
     @objc private func closePressed() {
         onClose()
+    }
+
+    private func updateModeControls() {
+        modeLabel?.stringValue = showingFullSource
+            ? "FULL SOURCE  •  STARTED AT SELECTED MOMENT"
+            : "SELECTED MOMENT  •  \(selectedDuration.formatted(.number.precision(.fractionLength(1)))) SEC"
+        sourceToggleButton?.title = showingFullSource ? "View Selected Range" : "View Full Source"
+        replayButton?.title = showingFullSource ? "Replay from Selection" : "Replay Range"
     }
 }
 

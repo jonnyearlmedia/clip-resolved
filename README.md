@@ -81,6 +81,21 @@ Searches run immediately. Any action that changes Resolve is shown as a pending 
 
 Visual search results are reviewable inside the app, not just filenames and timestamps. Project Chat shows local thumbnails for the strongest returned ranges. Clicking a result opens the original MP4 at the handled in point, plays until the handled out point, and leaves the full source available for scrubbing. Each successful search keeps a durable, professionally named Resolve action, including after relaunch. Before acting, the app reads the open Resolve project's timeline names: it opens an exact existing timeline instead of creating a duplicate, or offers to create it when absent.
 
+## Current Mac app workflow
+
+Use **Project** as the control room:
+
+1. Click **New**, name the project, and choose Restaurant / Hospitality, Interview / Community Story, or Event / Family. No media needs to be connected yet. **Open Existing** remains available for projects already on disk.
+2. Open **Import Media**, choose that project as the destination, then scan and checksum-verify each camera card one at a time. Repeat for every later card; existing index data is retained.
+3. Plug in each external recorder card, scan it the same way, label it (for example `DJI MIC 2 A`), and add it to the existing project. Audio-only cards are stored separately under `Audio/<RECORDER>` and are not sent through the visual index.
+4. Click **Prepare Resolve** to create source-labelled footage/audio bins and import originals.
+5. For external recorder files, click **Sync External Audio** to use Resolve waveform sync while retaining embedded camera audio.
+6. With two or more camera sources, click **Create Multicam** and choose audio or timecode sync. Non-overlapping clips remain in the chronological source set rather than being forced into fake overlap.
+7. Use **Footage Search** for arbitrary visual/spoken searches, or **Project Chat** for conversational requests and saved preferences.
+8. Build the profile package when ready. Event projects create a capture-time chronological stringout first, then ceremony, speech, reaction, group, candid, detail, food, and venue views plus the complete not-selected review.
+
+From **Import Media**, choose an existing project as the destination to add later cards through the same checksum-verified copy path. Each camera label receives `Media/<SOURCE>`, each recorder receives `Audio/<RECORDER>`, and every ingest keeps its own manifest.
+
 ## CLI equivalent
 
 ```bash
@@ -103,6 +118,18 @@ clip-resolved selects \
 clip-resolved smart-selects \
   --project-root "/path/to/Test Project" \
   --profile restaurant
+
+clip-resolved register-source \
+  --project-root "/path/to/Test Project" \
+  --source "/path/to/later/iphone" \
+  --source-label IPHONE \
+  --source-kind camera
+
+clip-resolved sync-audio --project-root "/path/to/Test Project"
+clip-resolved create-multicam \
+  --project-root "/path/to/Test Project" \
+  --name "INTERVIEW MULTICAM" \
+  --sync-mode audio
 ```
 
 Optional embedded-audio transcription:

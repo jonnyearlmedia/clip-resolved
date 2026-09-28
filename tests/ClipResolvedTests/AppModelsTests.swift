@@ -59,6 +59,40 @@ final class AppModelsTests: XCTestCase {
         XCTAssertNil(decoded.suggestedAction)
     }
 
+    func testOlderProjectMigratesToSourceManifestAndProfile() throws {
+        let projectID = UUID()
+        let payload = #"{"id":"\#(projectID.uuidString)","name":"OSAKA","rootPath":"/Projects/OSAKA","sourcePath":"/Projects/OSAKA/RAW FOOTAGE","kind":"Client","createdAt":0,"indexedAssets":65,"visualSamples":848}"#
+        let decoded = try JSONDecoder().decode(ProjectRecord.self, from: Data(payload.utf8))
+
+        XCTAssertEqual(decoded.profile, .communityStory)
+        XCTAssertEqual(decoded.sources.count, 1)
+        XCTAssertEqual(decoded.sources.first?.label, "OSMO")
+        XCTAssertEqual(decoded.sources.first?.path, decoded.sourcePath)
+    }
+
+    func testProjectRecordPreservesExplicitEmptySourcesForProjectFirstWorkflow() throws {
+        let project = ProjectRecord(
+            name: "BABY SHOWER",
+            rootPath: "/Projects/BABY SHOWER",
+            sourcePath: "",
+            kind: .personal,
+            profile: .event,
+            sources: []
+        )
+
+        let decoded = try JSONDecoder().decode(ProjectRecord.self, from: JSONEncoder().encode(project))
+
+        XCTAssertTrue(decoded.sources.isEmpty)
+        XCTAssertTrue(decoded.sourcePath.isEmpty)
+        XCTAssertEqual(decoded.profile, .event)
+    }
+
+    func testAudioSourceLabelsDoNotMisclassifyDJIMicsAsOsmo() {
+        XCTAssertEqual(ProjectRecord.inferSourceLabel("/Volumes/DJI MIC 2", kind: .audio), "DJI MIC 2")
+        XCTAssertEqual(ProjectRecord.inferSourceLabel("/Volumes/DJI MIC MINI", kind: .audio), "DJI MIC MINI")
+        XCTAssertEqual(ProjectRecord.inferSourceLabel("/Volumes/OSMO", kind: .camera), "OSMO")
+    }
+
     func testVerifiedOffloadCopiesAndPreservesSource() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let card = root.appendingPathComponent("card/DCIM", isDirectory: true)
@@ -82,7 +116,7 @@ final class AppModelsTests: XCTestCase {
             height: 1080,
             hasAudio: true
         )
-        let group = ShootGroup(id: "test", name: "Test Shoot", kind: .client, files: [file], start: file.captureTime, end: file.captureTime)
+        let group = ShootGroup(id: "test", name: "Test Shoot", kind: .client, sourceLabel: "OSMO", sourceKind: .camera, files: [file], start: file.captureTime, end: file.captureTime)
         let result = try await VerifiedOffloadService().offload(
             group: group,
             sourceRoot: card,
@@ -94,7 +128,73 @@ final class AppModelsTests: XCTestCase {
         let destination = result.mediaRoot.appendingPathComponent("DJI_TEST.MP4")
         XCTAssertEqual(try Data(contentsOf: source), original)
         XCTAssertEqual(try Data(contentsOf: destination), original)
+        XCTAssertEqual(result.mediaRoot.lastPathComponent, "OSMO")
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.projectRoot.appendingPathComponent(".clip-resolved/manifests/ingest-manifest.json").path))
         XCTAssertEqual(result.filesVerified, 1)
+
+        let laterGroup = ShootGroup(
+            id: "later",
+            name: "Later Card",
+            kind: .client,
+            sourceLabel: "IPHONE",
+            sourceKind: .camera,
+            files: [file],
+            start: file.captureTime,
+            end: file.captureTime
+        )
+        let later = try await VerifiedOffloadService().offload(
+            group: laterGroup,
+            sourceRoot: card,
+            activeProjectsRoot: active,
+            volumeUUID: "fixture-later",
+            destinationProjectRoot: result.projectRoot,
+            progress: { _ in }
+        )
+        XCTAssertEqual(later.projectRoot, result.projectRoot)
+        XCTAssertEqual(later.mediaRoot.lastPathComponent, "IPHONE")
+        XCTAssertEqual(try Data(contentsOf: later.mediaRoot.appendingPathComponent("DJI_TEST.MP4")), original)
+        let manifests = try FileManager.default.contentsOfDirectory(
+            at: result.projectRoot.appendingPathComponent(".clip-resolved/manifests"),
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix("ingest-") }
+        XCTAssertGreaterThanOrEqual(manifests.count, 2)
+
+        let micSource = card.appendingPathComponent("DJI_MIC_001.WAV")
+        let micData = Data("mic-original".utf8)
+        try micData.write(to: micSource)
+        let micFile = ScannedFile(
+            path: micSource.path,
+            relativePath: micSource.lastPathComponent,
+            groupKey: "DJI_MIC_001",
+            kind: "audio",
+            size: Int64(micData.count),
+            captureTime: file.captureTime,
+            duration: 10,
+            fps: 0,
+            width: 0,
+            height: 0,
+            hasAudio: true
+        )
+        let micGroup = ShootGroup(
+            id: "mic",
+            name: "Mic Card",
+            kind: .client,
+            sourceLabel: "DJI MIC 2",
+            sourceKind: .audio,
+            files: [micFile],
+            start: micFile.captureTime,
+            end: micFile.captureTime
+        )
+        let mic = try await VerifiedOffloadService().offload(
+            group: micGroup,
+            sourceRoot: card,
+            activeProjectsRoot: active,
+            volumeUUID: "fixture-mic",
+            destinationProjectRoot: result.projectRoot,
+            progress: { _ in }
+        )
+        XCTAssertEqual(mic.mediaRoot.lastPathComponent, "DJI MIC 2")
+        XCTAssertEqual(mic.mediaRoot.deletingLastPathComponent().lastPathComponent, "Audio")
+        XCTAssertEqual(try Data(contentsOf: mic.mediaRoot.appendingPathComponent("DJI_MIC_001.WAV")), micData)
     }
 }

@@ -2,30 +2,18 @@ import SwiftUI
 
 struct SearchView: View {
     @Bindable var store: AppStore
-    @State private var showAddProject = false
-    @State private var showSmartSelectsConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Picker("Project", selection: $store.selectedProjectID) {
-                    ForEach(store.projects) { project in
-                        Text(project.name).tag(Optional(project.id))
-                    }
+            HStack(spacing: 12) {
+                ProjectPicker(store: store)
+                if let project = store.selectedProject {
+                    Text(project.profile.rawValue)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: 320)
-                Button { showAddProject = true } label: { Label("Open Project", systemImage: "plus") }
                 Spacer()
-                Button("Index Footage") { Task { await store.indexSelectedProject() } }
-                    .disabled(store.selectedProject == nil || store.isBusy)
-                Button("Transcribe Audio") { Task { await store.transcribeSelectedProject() } }
-                    .disabled(store.selectedProject == nil || store.isBusy)
-                Button("Prepare Resolve") { Task { await store.prepareResolve() } }
-                    .disabled(store.selectedProject == nil || store.isBusy)
-                Button("Build Restaurant Selects") { showSmartSelectsConfirmation = true }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(store.selectedProject == nil || store.selectedProject?.indexedAssets == 0 || store.isBusy)
-                    .help("Create the organized restaurant category package plus one complete NOT SELECTED review timeline")
+                Button("Manage Project") { store.selection = .project }
             }
             .padding(16)
 
@@ -33,15 +21,16 @@ struct SearchView: View {
 
             if let project = store.selectedProject {
                 VStack(alignment: .leading, spacing: 14) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(project.name).font(.title2.bold())
-                            Text(project.rootPath).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    ViewThatFits(in: .horizontal) {
+                        HStack {
+                            projectIdentity(project)
+                            Spacer()
+                            projectMetrics(project)
                         }
-                        Spacer()
-                        Label("\(project.indexedAssets) clips", systemImage: "film.stack")
-                        Label("\(project.visualSamples) samples", systemImage: "brain")
-                        Label("\(project.transcripts ?? 0) transcripts", systemImage: "waveform")
+                        VStack(alignment: .leading, spacing: 3) {
+                            projectIdentity(project)
+                            projectMetrics(project)
+                        }
                     }
 
                     Picker("Search", selection: $store.searchMode) {
@@ -124,73 +113,22 @@ struct SearchView: View {
             }
         }
         .navigationTitle("Footage Search")
-        .sheet(isPresented: $showAddProject) {
-            AddProjectView(store: store, isPresented: $showAddProject)
-        }
-        .confirmationDialog(
-            "Build the restaurant SELECTS package?",
-            isPresented: $showSmartSelectsConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Create Complete Package in Resolve") {
-                Task { await store.createSmartSelects() }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Creates 00 ALL RAW FOOTAGE STRINGOUT, then Food, Exterior Storefront, Interior Dining Room, Drinks, Signage/Logo, Japanese Food Close Ups, and Sake Bottles in 00 TIMELINES / SELECTS, followed by ALL FOOTAGE NOT SELECTED REVIEW. Every range references the indexed original MP4s.")
-        }
         .task { await store.refreshSelectedProject() }
     }
-}
 
-private struct AddProjectView: View {
-    let store: AppStore
-    @Binding var isPresented: Bool
-    @State private var name = ""
-    @State private var root = ""
-    @State private var source = ""
-    @State private var kind: ProjectKind = .client
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Open Existing Project").font(.title2.bold())
-            TextField("Project name", text: $name)
-            Picker("Type", selection: $kind) {
-                ForEach(ProjectKind.allCases) { Text($0.rawValue).tag($0) }
-            }
-            HStack {
-                TextField("Project root", text: $root)
-                Button("Choose…") {
-                    if let url = FolderPicker.chooseFolder(prompt: "Choose the project root") {
-                        root = url.path
-                        if name.isEmpty { name = url.lastPathComponent }
-                        let canonical = url.appendingPathComponent("Media/Osmo")
-                        let raw = url.appendingPathComponent("RAW FOOTAGE")
-                        if FileManager.default.fileExists(atPath: canonical.path) { source = canonical.path }
-                        else if FileManager.default.fileExists(atPath: raw.path) { source = raw.path }
-                    }
-                }
-            }
-            HStack {
-                TextField("Original footage folder", text: $source)
-                Button("Choose…") {
-                    if let url = FolderPicker.chooseFolder(prompt: "Choose the original footage folder", startingAt: root) { source = url.path }
-                }
-            }
-            HStack {
-                Spacer()
-                Button("Cancel") { isPresented = false }
-                Button("Open") {
-                    Task {
-                        await store.addExistingProject(name: name, root: root, source: source, kind: kind)
-                        isPresented = false
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(name.isEmpty || root.isEmpty || source.isEmpty)
-            }
+    private func projectIdentity(_ project: ProjectRecord) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(project.name).font(.title2.bold())
+            Text(project.rootPath).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
-        .padding(24)
-        .frame(width: 680)
+    }
+
+    private func projectMetrics(_ project: ProjectRecord) -> some View {
+        HStack(spacing: 16) {
+            Label("\(project.indexedAssets) clips", systemImage: "film.stack")
+            Label("\(project.visualSamples) samples", systemImage: "brain")
+            Label("\(project.transcripts ?? 0) transcripts", systemImage: "waveform")
+        }
+        .font(.callout)
     }
 }

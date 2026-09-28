@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Iterable
 
 from .models import MediaAsset, Moment
-from .ffprobe import discover_video_files
+from .ffprobe import discover_audio_files, discover_video_files
+from .sources import ProjectSource, load_sources, source_for_path
 
 
 class ResolveUnavailable(RuntimeError):
@@ -156,6 +157,11 @@ class ResolveAdapter:
             counter += 1
         return f"{base} {counter}"
 
+    @classmethod
+    def _source_folder(cls, media_pool, source: ProjectSource, media_kind: str):
+        root_name = "02 AUDIO" if media_kind == "audio" else "01 FOOTAGE"
+        return cls._ensure_folder_path(media_pool, [root_name, source.label])
+
     @staticmethod
     def _timelines(project) -> list:
         return [
@@ -194,6 +200,132 @@ class ResolveAdapter:
         if project.SetCurrentTimeline(timeline) is False:
             raise RuntimeError(f"Resolve could not open timeline: {timeline_name}")
         return {"project": project.GetName(), "timeline": timeline.GetName(), "opened": True}
+
+    def _registered_media_items(self, project_root: Path):
+        resolve = self.connect()
+        manager = resolve.GetProjectManager()
+        project = manager.GetCurrentProject() if manager else None
+        if project is None:
+            raise ResolveUnavailable("No current Resolve project is open")
+        self.require_saved_current_project(manager, project)
+        media_pool = project.GetMediaPool()
+        existing = self._items_by_path(media_pool)
+        videos: list[tuple[ProjectSource, object]] = []
+        audios: list[tuple[ProjectSource, object]] = []
+        missing: list[str] = []
+        for source in load_sources(project_root):
+            if source.kind == "camera":
+                for path in discover_video_files(source.root):
+                    item = existing.get(os.path.normcase(os.path.realpath(str(path))))
+                    if item is None:
+                        missing.append(str(path))
+                    else:
+                        videos.append((source, item))
+            for path in discover_audio_files(source.root):
+                item = existing.get(os.path.normcase(os.path.realpath(str(path))))
+                if item is None:
+                    missing.append(str(path))
+                else:
+                    audios.append((source, item))
+        if missing:
+            sample = ", ".join(Path(path).name for path in missing[:3])
+            raise RuntimeError(
+                f"{len(missing)} registered source file(s) are not in the Resolve Media Pool "
+                f"({sample}). Run Prepare Resolve first."
+            )
+        return resolve, manager, project, media_pool, videos, audios
+
+    def auto_sync_audio(
+        self,
+        project_root: Path,
+        *,
+        retain_embedded_audio: bool = True,
+    ) -> dict:
+        resolve, manager, project, media_pool, videos, audios = self._registered_media_items(
+            project_root.expanduser().resolve()
+        )
+        if not videos or not audios:
+            raise RuntimeError(
+                "Waveform sync needs at least one imported video and one imported audio file."
+            )
+        settings = {
+            "syncMode": resolve.AUDIO_SYNC_WAVEFORM,
+            "channelNumber": resolve.AUDIO_SYNC_CHANNEL_AUTOMATIC,
+            "retainEmbeddedAudio": retain_embedded_audio,
+            "retainVideoMetadata": True,
+        }
+        items = [item for _source, item in videos] + [item for _source, item in audios]
+        if media_pool.AutoSyncAudio(items, settings) is False:
+            raise RuntimeError(
+                "Resolve could not waveform-sync the registered camera and external-audio files. "
+                "No successful sync was reported."
+            )
+        if manager.SaveProject() is False:
+            raise RuntimeError("Resolve synced audio but SaveProject() failed")
+        return {
+            "project": project.GetName(),
+            "sync_mode": "waveform",
+            "videos": len(videos),
+            "audio_files": len(audios),
+            "retain_embedded_audio": retain_embedded_audio,
+            "synced": True,
+        }
+
+    def create_multicam(
+        self,
+        project_root: Path,
+        *,
+        name: str,
+        sync_mode: str = "audio",
+    ) -> dict:
+        resolve, manager, project, media_pool, videos, _audios = self._registered_media_items(
+            project_root.expanduser().resolve()
+        )
+        source_labels = {source.label for source, _item in videos}
+        if len(source_labels) < 2:
+            raise RuntimeError(
+                "Multicam needs video from at least two registered camera sources. "
+                "Add each camera to this project first."
+            )
+        if sync_mode not in {"audio", "timecode"}:
+            raise ValueError("Multicam sync mode must be audio or timecode")
+        media_pool.SetCurrentFolder(
+            self._ensure_folder_path(media_pool, ["01 FOOTAGE", "MULTICAM"])
+        )
+        options = {
+            "name": name,
+            "angleSyncMode": (
+                resolve.MULTICAM_ANGLE_SYNC_AUDIO
+                if sync_mode == "audio"
+                else resolve.MULTICAM_ANGLE_SYNC_TIMECODE
+            ),
+            "multicamAudioMode": resolve.MULTICAM_AUDIO_ALL,
+            "angleNameMode": resolve.MULTICAM_ANGLE_NAME_FILE,
+            "splitAtGaps": sync_mode == "audio",
+            "useFullClipExtents": True,
+            "createBinForSourceClips": True,
+            "detectSameCameraClipsMode": resolve.MULTICAM_DETECT_NONE,
+        }
+        created = media_pool.CreateMulticamClip(
+            [item for _source, item in videos],
+            options,
+        ) or []
+        if not created:
+            raise RuntimeError(
+                f"Resolve created no multicam clips using {sync_mode} sync. "
+                "The source clips may not overlap or may not share usable sync evidence."
+            )
+        if manager.SaveProject() is False:
+            raise RuntimeError("Resolve created multicam media but SaveProject() failed")
+        return {
+            "project": project.GetName(),
+            "name": name,
+            "sync_mode": sync_mode,
+            "camera_sources": sorted(source_labels),
+            "source_clips": len(videos),
+            "multicam_clips_created": len(created),
+            "created": True,
+        }
 
     @classmethod
     def _project_has_media(cls, project) -> bool:
@@ -250,7 +382,7 @@ class ResolveAdapter:
         media_pool = project.GetMediaPool()
         media_storage = resolve.GetMediaStorage()
 
-        footage_folder = self._ensure_folder_path(media_pool, ["01 FOOTAGE", "OSMO"])
+        fallback_footage_folder = self._ensure_folder_path(media_pool, ["01 FOOTAGE", "OSMO"])
         selects_folder = self._ensure_folder_path(media_pool, ["00 TIMELINES", "SELECTS"])
         self._ensure_folder_path(media_pool, ["00 TIMELINES", "EDITS"])
 
@@ -260,7 +392,13 @@ class ResolveAdapter:
             key = os.path.normcase(os.path.realpath(str(asset.path)))
             item = existing_items.get(key)
             if item is None:
-                media_pool.SetCurrentFolder(footage_folder)
+                source = source_for_path(project_root, asset.path) if project_root else None
+                destination = (
+                    self._source_folder(media_pool, source, "camera")
+                    if source is not None
+                    else fallback_footage_folder
+                )
+                media_pool.SetCurrentFolder(destination)
                 imported = media_storage.AddItemListToMediaPool([str(asset.path)]) or []
                 item = imported[0] if imported else self._find_item_by_path(media_pool, asset.path)
             if item is None:
@@ -364,14 +502,16 @@ class ResolveAdapter:
     ) -> dict:
         project_root = project_root.expanduser().resolve()
         source = source.expanduser().resolve()
-        for relative in ("Media/Osmo", "Assets", "Project", ".clip-resolved/manifests", ".clip-resolved/analysis"):
+        for relative in ("Media", "Assets", "Project", ".clip-resolved/manifests", ".clip-resolved/analysis"):
             (project_root / relative).mkdir(parents=True, exist_ok=True)
 
         project = self.ensure_project(project_name, project_root)
         manager = self.connect().GetProjectManager()
         media_pool = project.GetMediaPool()
         media_storage = self.connect().GetMediaStorage()
-        footage_folder = self._ensure_folder_path(media_pool, ["01 FOOTAGE", "OSMO"])
+        sources = load_sources(project_root)
+        if not sources:
+            sources = [ProjectSource(label="OSMO", path=str(source), kind="camera")]
         self._ensure_folder_path(media_pool, ["00 TIMELINES", "SELECTS"])
         self._ensure_folder_path(media_pool, ["00 TIMELINES", "EDITS"])
 
@@ -380,17 +520,39 @@ class ResolveAdapter:
 
         imported = 0
         existing_items = self._items_by_path(media_pool)
-        paths = discover_video_files(source)
-        for path in paths:
-            key = os.path.normcase(os.path.realpath(str(path)))
-            if key in existing_items:
-                continue
-            media_pool.SetCurrentFolder(footage_folder)
-            result = media_storage.AddItemListToMediaPool([str(path)]) or []
-            if not result:
-                raise RuntimeError(f"Resolve could not import source media: {path}")
-            existing_items[key] = result[0]
-            imported += 1
+        video_paths: list[Path] = []
+        audio_paths: list[Path] = []
+        for registered in sources:
+            source_root = registered.root
+            if registered.kind == "camera":
+                camera_paths = discover_video_files(source_root)
+                video_paths.extend(camera_paths)
+                footage_folder = self._source_folder(media_pool, registered, "camera")
+                for path in camera_paths:
+                    key = os.path.normcase(os.path.realpath(str(path)))
+                    if key in existing_items:
+                        continue
+                    media_pool.SetCurrentFolder(footage_folder)
+                    result = media_storage.AddItemListToMediaPool([str(path)]) or []
+                    if not result:
+                        raise RuntimeError(f"Resolve could not import source media: {path}")
+                    existing_items[key] = result[0]
+                    imported += 1
+
+            source_audio = discover_audio_files(source_root)
+            audio_paths.extend(source_audio)
+            if source_audio:
+                audio_folder = self._source_folder(media_pool, registered, "audio")
+                for path in source_audio:
+                    key = os.path.normcase(os.path.realpath(str(path)))
+                    if key in existing_items:
+                        continue
+                    media_pool.SetCurrentFolder(audio_folder)
+                    result = media_storage.AddItemListToMediaPool([str(path)]) or []
+                    if not result:
+                        raise RuntimeError(f"Resolve could not import source audio: {path}")
+                    existing_items[key] = result[0]
+                    imported += 1
 
         if manager.SaveProject() is False:
             raise RuntimeError("Resolve project scaffold was created but SaveProject() failed")
@@ -402,7 +564,12 @@ class ResolveAdapter:
             "project": project.GetName(),
             "project_root": str(project_root),
             "source": str(source),
-            "source_files": len(paths),
+            "sources": [
+                {"label": item.label, "path": item.path, "kind": item.kind}
+                for item in sources
+            ],
+            "source_files": len(video_paths),
+            "audio_files": len(audio_paths),
             "imported": imported,
             "snapshot": str(snapshot),
             "snapshot_exported": bool(exported),

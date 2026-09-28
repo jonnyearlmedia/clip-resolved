@@ -29,13 +29,41 @@ RESTAURANT_SELECTS_PROFILE: tuple[SelectsCategory, ...] = (
     SelectsCategory("SAKE BOTTLES SELECTS", "sake bottles"),
 )
 
+COMMUNITY_STORY_SELECTS_PROFILE: tuple[SelectsCategory, ...] = (
+    SelectsCategory("INTERVIEW SETUPS SELECTS", "interview subject talking to camera seated portrait"),
+    SelectsCategory("PEOPLE COMMUNITY SELECTS", "people community customers staff candid interaction"),
+    SelectsCategory("PROCESS ACTION SELECTS", "person working making preparing serving process action"),
+    SelectsCategory("PRODUCT FOOD SELECTS", "food product merchandise close up hero shot"),
+    SelectsCategory("EXTERIOR LOCATION SELECTS", "business exterior storefront entrance establishing shot"),
+    SelectsCategory("INTERIOR ATMOSPHERE SELECTS", "business interior workspace atmosphere wide shot"),
+    SelectsCategory("DETAILS CUTAWAYS SELECTS", "detail close up hands tools texture sign cutaway"),
+)
+
+EVENT_SELECTS_PROFILE: tuple[SelectsCategory, ...] = (
+    SelectsCategory("CEREMONY KEY MOMENTS SELECTS", "ceremony celebration presentation important moment"),
+    SelectsCategory("SPEECHES TOASTS SELECTS", "person giving speech toast holding microphone"),
+    SelectsCategory("FAMILY REACTIONS SELECTS", "family friends smiling laughing emotional reaction"),
+    SelectsCategory("GROUPS PORTRAITS SELECTS", "group photo family portrait people posing"),
+    SelectsCategory("CANDID MOMENTS SELECTS", "candid people talking laughing celebration"),
+    SelectsCategory("DETAILS DECOR GIFTS SELECTS", "event decorations table details gifts invitations"),
+    SelectsCategory("FOOD CAKE SELECTS", "party food cake dessert close up"),
+    SelectsCategory("VENUE ESTABLISHING SELECTS", "event venue exterior interior wide establishing shot"),
+)
+
 
 def selects_profile(name: str) -> tuple[SelectsCategory, ...]:
     """Return a shoot-aware query recipe without limiting later arbitrary search."""
     normalized = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     if normalized in {"restaurant", "restaurant-food", "food"}:
         return RESTAURANT_SELECTS_PROFILE
-    raise ValueError(f"Unknown SELECTS profile: {name}. Available profile: restaurant")
+    if normalized in {"community-story", "community", "interview", "restaurant-story"}:
+        return COMMUNITY_STORY_SELECTS_PROFILE
+    if normalized in {"event", "family-event", "baby-shower", "celebration"}:
+        return EVENT_SELECTS_PROFILE
+    raise ValueError(
+        f"Unknown SELECTS profile: {name}. "
+        "Available profiles: restaurant, community-story, event"
+    )
 
 
 def default_timeline_name(query: str) -> str:
@@ -69,7 +97,10 @@ def unselected_moments(
         selected_frames.setdefault(asset.id, []).append((min(start, total), min(end, total)))
 
     remainder: list[Moment] = []
-    for asset in sorted(assets.values(), key=lambda item: str(item.path)):
+    for asset in sorted(
+        assets.values(),
+        key=lambda item: (item.capture_time if item.capture_time is not None else math.inf, str(item.path)),
+    ):
         if asset.fps <= 0:
             continue
         total = max(1, int(math.ceil(asset.duration * asset.fps)))
@@ -119,7 +150,10 @@ def unselected_moments(
 def all_source_moments(assets: dict[str, MediaAsset]) -> list[Moment]:
     """Return every indexed original in source order, full length, exactly once."""
     moments: list[Moment] = []
-    for asset in sorted(assets.values(), key=lambda item: str(item.path)):
+    for asset in sorted(
+        assets.values(),
+        key=lambda item: (item.capture_time if item.capture_time is not None else math.inf, str(item.path)),
+    ):
         if asset.fps <= 0:
             continue
         total_frames = max(1, int(math.ceil(asset.duration * asset.fps)))

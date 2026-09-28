@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+from datetime import datetime
 from fractions import Fraction
 from pathlib import Path
 
@@ -27,6 +28,22 @@ def _asset_id(path: Path) -> str:
     # size/mtime, which are freshness signals rather than identity.
     payload = str(path.resolve()).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()[:24]
+
+
+def _capture_timestamp(payload: dict, stat) -> float:
+    candidates = [payload.get("format", {}).get("tags", {}).get("creation_time")]
+    candidates.extend(
+        stream.get("tags", {}).get("creation_time")
+        for stream in payload.get("streams", [])
+    )
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            return datetime.fromisoformat(str(candidate).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            continue
+    return float(getattr(stat, "st_birthtime", stat.st_mtime))
 
 
 def probe(path: str | Path) -> MediaAsset:
@@ -81,14 +98,27 @@ def probe(path: str | Path) -> MediaAsset:
         has_audio=bool(audios),
         size=stat.st_size,
         mtime_ns=stat.st_mtime_ns,
+        capture_time=_capture_timestamp(payload, stat),
     )
 
 
 def discover_video_files(root: str | Path) -> list[Path]:
     base = Path(root).expanduser().resolve()
+    suffixes = {".mp4", ".mov", ".mxf", ".m4v", ".insv"}
     if base.is_file():
-        return [base]
-    suffixes = {".mp4", ".mov", ".mxf", ".m4v"}
+        return [base] if base.suffix.lower() in suffixes else []
+    return sorted(
+        p.resolve()
+        for p in base.rglob("*")
+        if p.is_file() and p.suffix.lower() in suffixes
+    )
+
+
+def discover_audio_files(root: str | Path) -> list[Path]:
+    base = Path(root).expanduser().resolve()
+    suffixes = {".wav", ".m4a", ".mp3", ".aif", ".aiff", ".flac"}
+    if base.is_file():
+        return [base] if base.suffix.lower() in suffixes else []
     return sorted(
         p.resolve()
         for p in base.rglob("*")

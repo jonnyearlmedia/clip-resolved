@@ -1,17 +1,19 @@
 import Foundation
 
 enum WorkspaceSection: String, CaseIterable, Identifiable {
-    case ingest = "Ingest"
-    case chat = "Project Chat"
+    case project = "Project"
     case search = "Footage Search"
+    case chat = "Project Chat"
+    case ingest = "Import Media"
     case activity = "Activity"
 
     var id: String { rawValue }
     var symbol: String {
         switch self {
-        case .ingest: "externaldrive.badge.plus"
-        case .chat: "bubble.left.and.bubble.right"
+        case .project: "square.stack.3d.up"
         case .search: "sparkle.magnifyingglass"
+        case .chat: "bubble.left.and.bubble.right"
+        case .ingest: "externaldrive.badge.plus"
         case .activity: "list.bullet.rectangle"
         }
     }
@@ -27,6 +29,70 @@ enum SearchMode: String, Codable, CaseIterable, Identifiable {
     case visual = "Visual"
     case spoken = "Spoken words"
     var id: String { rawValue }
+}
+
+enum ShootProfile: String, Codable, CaseIterable, Identifiable {
+    case restaurant = "Restaurant / Hospitality"
+    case communityStory = "Interview / Community Story"
+    case event = "Event / Family"
+
+    var id: String { rawValue }
+
+    var backendName: String {
+        switch self {
+        case .restaurant: "restaurant"
+        case .communityStory: "community-story"
+        case .event: "event"
+        }
+    }
+
+    var packageTitle: String {
+        switch self {
+        case .restaurant: "Restaurant SELECTS Package"
+        case .communityStory: "Community Story SELECTS Package"
+        case .event: "Chronological Event Package"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .restaurant:
+            "Food, interiors, storefront, drinks, signage, and detail-driven b-roll."
+        case .communityStory:
+            "Interview setups, people, process, products, locations, and cutaways."
+        case .event:
+            "Chronology first, then ceremony, speeches, reactions, groups, details, food, and venue."
+        }
+    }
+}
+
+enum ProjectSourceKind: String, Codable, CaseIterable, Identifiable {
+    case camera = "Camera"
+    case audio = "Audio"
+    var id: String { rawValue }
+    var backendName: String { rawValue.lowercased() }
+}
+
+struct ProjectSourceRecord: Codable, Hashable, Identifiable {
+    let id: UUID
+    var label: String
+    var path: String
+    var kind: ProjectSourceKind
+    var addedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        label: String,
+        path: String,
+        kind: ProjectSourceKind = .camera,
+        addedAt: Date = Date()
+    ) {
+        self.id = id
+        self.label = label
+        self.path = path
+        self.kind = kind
+        self.addedAt = addedAt
+    }
 }
 
 struct ScannedFile: Codable, Hashable, Identifiable {
@@ -56,9 +122,11 @@ struct ScannedFile: Codable, Hashable, Identifiable {
 struct ScannedGroupPayload: Codable {
     let id: String
     let suggestedName: String
+    let sourceKind: ProjectSourceKind
     let start: String
     let end: String
     let videoCount: Int
+    let audioCount: Int
     let fileCount: Int
     let totalBytes: Int64
     let files: [ScannedFile]
@@ -66,7 +134,9 @@ struct ScannedGroupPayload: Codable {
     enum CodingKeys: String, CodingKey {
         case id, start, end, files
         case suggestedName = "suggested_name"
+        case sourceKind = "source_kind"
         case videoCount = "video_count"
+        case audioCount = "audio_count"
         case fileCount = "file_count"
         case totalBytes = "total_bytes"
     }
@@ -75,6 +145,7 @@ struct ScannedGroupPayload: Codable {
 struct ScanPayload: Codable {
     let source: String
     let videoCount: Int
+    let audioCount: Int
     let sidecarCount: Int
     let totalBytes: Int64
     let groups: [ScannedGroupPayload]
@@ -83,6 +154,7 @@ struct ScanPayload: Codable {
     enum CodingKeys: String, CodingKey {
         case source, groups
         case videoCount = "video_count"
+        case audioCount = "audio_count"
         case sidecarCount = "sidecar_count"
         case totalBytes = "total_bytes"
         case unassignedSidecars = "unassigned_sidecars"
@@ -93,11 +165,14 @@ struct ShootGroup: Identifiable, Hashable {
     let id: String
     var name: String
     var kind: ProjectKind
+    var sourceLabel: String
+    var sourceKind: ProjectSourceKind
     var files: [ScannedFile]
     let start: String
     let end: String
 
     var videos: [ScannedFile] { files.filter { $0.kind == "video" } }
+    var audioFiles: [ScannedFile] { files.filter { $0.kind == "audio" } }
     var totalBytes: Int64 { files.reduce(0) { $0 + $1.size } }
 }
 
@@ -107,21 +182,87 @@ struct ProjectRecord: Codable, Identifiable, Hashable {
     var rootPath: String
     var sourcePath: String
     var kind: ProjectKind
+    var profile: ShootProfile
+    var sources: [ProjectSourceRecord]
     var createdAt: Date
     var indexedAssets: Int
     var visualSamples: Int
     var transcripts: Int?
 
-    init(id: UUID = UUID(), name: String, rootPath: String, sourcePath: String, kind: ProjectKind, createdAt: Date = Date(), indexedAssets: Int = 0, visualSamples: Int = 0, transcripts: Int? = nil) {
+    init(
+        id: UUID = UUID(),
+        name: String,
+        rootPath: String,
+        sourcePath: String,
+        kind: ProjectKind,
+        profile: ShootProfile? = nil,
+        sources: [ProjectSourceRecord]? = nil,
+        createdAt: Date = Date(),
+        indexedAssets: Int = 0,
+        visualSamples: Int = 0,
+        transcripts: Int? = nil
+    ) {
         self.id = id
         self.name = name
         self.rootPath = rootPath
         self.sourcePath = sourcePath
         self.kind = kind
+        self.profile = profile ?? (kind == .personal ? .event : .communityStory)
+        self.sources = sources ?? [
+            ProjectSourceRecord(
+                label: Self.inferSourceLabel(sourcePath),
+                path: sourcePath,
+                kind: .camera,
+                addedAt: createdAt
+            )
+        ]
         self.createdAt = createdAt
         self.indexedAssets = indexedAssets
         self.visualSamples = visualSamples
         self.transcripts = transcripts
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, rootPath, sourcePath, kind, profile, sources, createdAt
+        case indexedAssets, visualSamples, transcripts
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        rootPath = try values.decode(String.self, forKey: .rootPath)
+        sourcePath = try values.decode(String.self, forKey: .sourcePath)
+        kind = try values.decode(ProjectKind.self, forKey: .kind)
+        profile = try values.decodeIfPresent(ShootProfile.self, forKey: .profile)
+            ?? (kind == .personal ? .event : .communityStory)
+        createdAt = try values.decode(Date.self, forKey: .createdAt)
+        sources = try values.decodeIfPresent([ProjectSourceRecord].self, forKey: .sources)
+            ?? [ProjectSourceRecord(
+                label: Self.inferSourceLabel(sourcePath),
+                path: sourcePath,
+                kind: .camera,
+                addedAt: createdAt
+            )]
+        indexedAssets = try values.decodeIfPresent(Int.self, forKey: .indexedAssets) ?? 0
+        visualSamples = try values.decodeIfPresent(Int.self, forKey: .visualSamples) ?? 0
+        transcripts = try values.decodeIfPresent(Int.self, forKey: .transcripts)
+    }
+
+    static func inferSourceLabel(_ path: String, kind: ProjectSourceKind = .camera) -> String {
+        let lower = path.lowercased()
+        if kind == .audio {
+            if lower.contains("mic 2") || lower.contains("mic_2") || lower.contains("mic2") { return "DJI MIC 2" }
+            if lower.contains("mic mini") || lower.contains("mic_mini") { return "DJI MIC MINI" }
+            if lower.contains("zoom") { return "ZOOM RECORDER" }
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            return name.isEmpty ? "EXTERNAL AUDIO" : name.uppercased()
+        }
+        if lower.contains("insta360") || lower.contains("go ultra") { return "INSTA360 GO ULTRA" }
+        if lower.contains("iphone") || lower.contains("apple") { return "IPHONE" }
+        if lower.contains("osmo") || lower.contains("dji") || lower.contains("raw footage") { return "OSMO" }
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        return name.isEmpty ? "CAMERA" : name.uppercased()
     }
 }
 
@@ -178,6 +319,7 @@ struct ResolveScaffoldResult: Codable {
     let timelineFPS: Double?
     let playbackFPS: Double?
     let frameRatesMatch: Bool
+    let audioFiles: Int?
 
     enum CodingKeys: String, CodingKey {
         case project, source, imported, snapshot
@@ -187,6 +329,41 @@ struct ResolveScaffoldResult: Codable {
         case timelineFPS = "timeline_fps"
         case playbackFPS = "playback_fps"
         case frameRatesMatch = "frame_rates_match"
+        case audioFiles = "audio_files"
+    }
+}
+
+struct AudioSyncResult: Codable {
+    let project: String
+    let syncMode: String
+    let videos: Int
+    let audioFiles: Int
+    let retainEmbeddedAudio: Bool
+    let synced: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case project, videos, synced
+        case syncMode = "sync_mode"
+        case audioFiles = "audio_files"
+        case retainEmbeddedAudio = "retain_embedded_audio"
+    }
+}
+
+struct MulticamResult: Codable {
+    let project: String
+    let name: String
+    let syncMode: String
+    let cameraSources: [String]
+    let sourceClips: Int
+    let multicamClipsCreated: Int
+    let created: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case project, name, created
+        case syncMode = "sync_mode"
+        case cameraSources = "camera_sources"
+        case sourceClips = "source_clips"
+        case multicamClipsCreated = "multicam_clips_created"
     }
 }
 

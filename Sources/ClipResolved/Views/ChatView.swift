@@ -29,26 +29,29 @@ struct ChatView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Picker("Project", selection: $store.selectedProjectID) {
-                ForEach(store.projects) { project in
-                    Text(project.name).tag(Optional(project.id))
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) { headerProject; Spacer(); headerActions }
+            VStack(alignment: .leading, spacing: 10) {
+                headerProject
+                HStack { Spacer(); headerActions }
             }
-            .frame(maxWidth: 320)
+        }
+        .padding(16)
+    }
 
+    private var headerProject: some View {
+        HStack(spacing: 12) {
+            ProjectPicker(store: store)
             Label(store.claudeStatus, systemImage: store.claudeStatus.contains("connected") ? "checkmark.circle.fill" : "exclamationmark.circle")
                 .font(.callout)
                 .foregroundStyle(store.claudeStatus.contains("connected") ? .green : .secondary)
+                .lineLimit(1)
+        }
+    }
 
-            Spacer()
-
-            Button {
-                showMemory = true
-            } label: {
-                Label("Memory", systemImage: "brain.head.profile")
-            }
-
+    private var headerActions: some View {
+        HStack(spacing: 8) {
+            Button { showMemory = true } label: { Label("Memory", systemImage: "brain.head.profile") }
             Menu {
                 Button("Clear This Conversation", role: .destructive) {
                     store.clearSelectedProjectChat()
@@ -63,7 +66,6 @@ struct ChatView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
         }
-        .padding(16)
     }
 
     private var conversation: some View {
@@ -125,10 +127,17 @@ struct ChatView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 620)
 
-            HStack(spacing: 10) {
-                suggestion("What footage is indexed?")
-                suggestion("Find food shots")
-                suggestion("Make a FOOD SHOTS SELECTS timeline")
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    suggestion("What footage is indexed?")
+                    suggestion("Find food shots")
+                    suggestion("Make a FOOD SHOTS SELECTS timeline")
+                }
+                VStack(spacing: 8) {
+                    suggestion("What footage is indexed?")
+                    suggestion("Find food shots")
+                    suggestion("Make a FOOD SHOTS SELECTS timeline")
+                }
             }
 
             Text("Footage analysis stays local. Claude receives project status, saved preferences, conversation text, and returned timestamp evidence, not your MP4 files.")
@@ -284,7 +293,7 @@ private struct PendingActionView: View {
                 Text("This will append \(action.rangeCount) handled ranges to the main SELECTS and create a NOT SELECTED timeline containing the exact source-frame remainder. No new video files will be rendered.")
                     .foregroundStyle(.secondary)
             case .createSmartSelects:
-                Text("This creates 00 ALL RAW FOOTAGE STRINGOUT, seven professionally named restaurant category timelines, and one ALL FOOTAGE NOT SELECTED REVIEW timeline. Every item references the original indexed MP4s.")
+                Text("This creates a chronological 00 ALL RAW FOOTAGE STRINGOUT, the project’s professionally named category timelines, and one ALL FOOTAGE NOT SELECTED REVIEW timeline. Every item references the original indexed media.")
                     .foregroundStyle(.secondary)
             case .openTimeline:
                 Text("This timeline already exists in the open Resolve project. Clip Resolved will switch to it without creating a duplicate or changing its contents.")

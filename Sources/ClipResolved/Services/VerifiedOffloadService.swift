@@ -15,16 +15,19 @@ actor VerifiedOffloadService {
         sourceRoot: URL,
         activeProjectsRoot: URL,
         volumeUUID: String,
+        destinationProjectRoot: URL? = nil,
         progress: @escaping @Sendable (String) -> Void
     ) async throws -> OffloadResult {
         let safeName = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !safeName.isEmpty, !safeName.contains("/"), safeName != ".", safeName != ".." else {
             throw CocoaError(.fileWriteInvalidFileName)
         }
-        let projectRoot = activeProjectsRoot
+        let projectRoot = destinationProjectRoot?.standardizedFileURL ?? activeProjectsRoot
             .appendingPathComponent(group.kind.rawValue, isDirectory: true)
             .appendingPathComponent(safeName, isDirectory: true)
-        let mediaRoot = projectRoot.appendingPathComponent("Media/Osmo", isDirectory: true)
+        let sourceFolder = safeSourceFolder(group.sourceLabel)
+        let sourceCollection = group.sourceKind == .audio ? "Audio" : "Media"
+        let mediaRoot = projectRoot.appendingPathComponent("\(sourceCollection)/\(sourceFolder)", isDirectory: true)
         let manifestRoot = projectRoot.appendingPathComponent(".clip-resolved/manifests", isDirectory: true)
         for folder in [mediaRoot, projectRoot.appendingPathComponent("Assets"), projectRoot.appendingPathComponent("Project"), projectRoot.appendingPathComponent(".clip-resolved/analysis"), manifestRoot] {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -145,12 +148,14 @@ actor VerifiedOffloadService {
             "schema": 1,
             "project": safeName,
             "classification": group.kind.rawValue,
+            "source_label": group.sourceLabel,
             "source_root": sourceRoot.path,
             "project_root": projectRoot.path,
             "created_at": ISO8601DateFormatter().string(from: Date()),
             "files": manifestItems,
         ]
         let data = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: manifestRoot.appendingPathComponent("ingest-\(session.id.uuidString).json"), options: .atomic)
         try data.write(to: manifestRoot.appendingPathComponent("ingest-manifest.json"), options: .atomic)
         return OffloadResult(projectRoot: projectRoot, mediaRoot: mediaRoot, filesVerified: verified, bytesVerified: bytes)
     }
@@ -164,5 +169,13 @@ actor VerifiedOffloadService {
             if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
         }
         return desired.deletingLastPathComponent().appendingPathComponent("\(stem)-\(UUID().uuidString).\(ext)")
+    }
+
+    private func safeSourceFolder(_ label: String) -> String {
+        let cleaned = label
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        return cleaned.isEmpty ? "CAMERA" : cleaned.uppercased()
     }
 }

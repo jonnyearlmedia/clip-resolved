@@ -2,6 +2,7 @@ from pathlib import Path
 
 from clip_resolved.models import MediaAsset, Moment
 from clip_resolved.resolve import ResolveAdapter, ResolveUnavailable
+from clip_resolved.sources import register_source
 
 
 class FakeFolder:
@@ -41,6 +42,8 @@ class FakeMediaPool:
         self.root = FakeFolder("root")
         self.current = self.root
         self.appended = []
+        self.synced = None
+        self.multicam = None
 
     def GetRootFolder(self):
         return self.root
@@ -60,6 +63,14 @@ class FakeMediaPool:
     def AppendToTimeline(self, clip_infos):
         self.appended.extend(clip_infos)
         return [object() for _ in clip_infos]
+
+    def AutoSyncAudio(self, items, settings):
+        self.synced = (items, settings)
+        return True
+
+    def CreateMulticamClip(self, items, options):
+        self.multicam = (items, options)
+        return [FakeItem("multicam://created")]
 
 
 class FakeMediaStorage:
@@ -120,6 +131,14 @@ class FakeProjectManager:
 
 
 class FakeResolve:
+    AUDIO_SYNC_WAVEFORM = 1
+    AUDIO_SYNC_CHANNEL_AUTOMATIC = 0
+    MULTICAM_ANGLE_SYNC_AUDIO = 1
+    MULTICAM_ANGLE_SYNC_TIMECODE = 2
+    MULTICAM_AUDIO_ALL = 3
+    MULTICAM_ANGLE_NAME_FILE = 4
+    MULTICAM_DETECT_NONE = 0
+
     def __init__(self):
         self.media_pool = FakeMediaPool()
         self.project = FakeProject(self.media_pool)
@@ -266,3 +285,40 @@ def test_existing_named_timeline_can_be_listed_and_opened_without_duplication():
     }
     assert resolve.project.current_timeline is food
     assert len(resolve.project.timelines) == 2
+
+
+def test_registered_sources_drive_waveform_sync_and_multicam(tmp_path):
+    project_root = tmp_path / "Project"
+    osmo = tmp_path / "Osmo"
+    phone = tmp_path / "Phone"
+    osmo.mkdir()
+    phone.mkdir()
+    osmo_video = osmo / "DJI_0001.MP4"
+    osmo_audio = osmo / "DJI_0001.WAV"
+    phone_video = phone / "IMG_0001.MOV"
+    for path in (osmo_video, osmo_audio, phone_video):
+        path.write_bytes(b"fixture")
+    register_source(project_root, osmo, label="OSMO")
+    register_source(project_root, phone, label="IPHONE")
+
+    resolve = FakeResolve()
+    resolve.media_pool.root.clips.extend(
+        [FakeItem(str(osmo_video)), FakeItem(str(osmo_audio)), FakeItem(str(phone_video))]
+    )
+    adapter = ResolveAdapter()
+    adapter._resolve = resolve
+
+    sync = adapter.auto_sync_audio(project_root)
+    multicam = adapter.create_multicam(
+        project_root,
+        name="EVENT MULTICAM",
+        sync_mode="audio",
+    )
+
+    assert sync["synced"] is True
+    assert sync["videos"] == 2
+    assert sync["audio_files"] == 1
+    assert resolve.media_pool.synced[1]["retainEmbeddedAudio"] is True
+    assert multicam["camera_sources"] == ["IPHONE", "OSMO"]
+    assert multicam["multicam_clips_created"] == 1
+    assert resolve.media_pool.multicam[1]["splitAtGaps"] is True

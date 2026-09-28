@@ -6,12 +6,13 @@ import OffloadEngine
 @MainActor
 @Observable
 final class AppStore {
-    var selection: WorkspaceSection = .ingest
+    var selection: WorkspaceSection = .project
     var sourcePath = ""
     var scanPayload: ScanPayload?
     var shootGroups: [ShootGroup] = []
     var projects: [ProjectRecord] = []
     var selectedProjectID: ProjectRecord.ID?
+    var ingestDestinationProjectID: ProjectRecord.ID?
     var query = ""
     var searchMode: SearchMode = .visual
     var timelineName = ""
@@ -76,7 +77,7 @@ final class AppStore {
         }
     }
 
-    init() {
+    init(startServices: Bool = true) {
         activeProjectsRoot = UserDefaults.standard.string(forKey: "activeProjectsRoot") ?? "/Volumes/Extreme SSD/ACTIVE PROJECTS"
         gapHours = UserDefaults.standard.object(forKey: "gapHours") as? Double ?? 3.0
         sampleInterval = UserDefaults.standard.object(forKey: "sampleInterval") as? Double ?? 2.0
@@ -96,8 +97,13 @@ final class AppStore {
             }
         }
         selectedProjectID = projects.first?.id
-        startCardWatcher()
-        Task { await refreshClaudeStatus() }
+        selection = projects.isEmpty ? .ingest : .project
+        if startServices {
+            startCardWatcher()
+            Task { await refreshClaudeStatus() }
+        } else {
+            claudeStatus = "Claude connected"
+        }
     }
 
     func startCardWatcher() {
@@ -131,9 +137,23 @@ final class AppStore {
             let payload = try await backend.scan(source: sourcePath, gapHours: gapHours)
             scanPayload = payload
             shootGroups = payload.groups.map {
-                ShootGroup(id: $0.id, name: $0.suggestedName, kind: .client, files: $0.files, start: $0.start, end: $0.end)
+                ShootGroup(
+                    id: $0.id,
+                    name: $0.suggestedName,
+                    kind: .client,
+                    sourceLabel: $0.sourceKind == .audio
+                        ? ProjectRecord.inferSourceLabel(sourcePath, kind: .audio)
+                        : ProjectRecord.inferSourceLabel(sourcePath),
+                    sourceKind: $0.sourceKind,
+                    files: $0.files,
+                    start: $0.start,
+                    end: $0.end
+                )
             }
             log("Found \(payload.videoCount) videos in \(payload.groups.count) proposed shoot group(s)")
+            if payload.audioCount > 0 {
+                log("Found \(payload.audioCount) external audio file(s)")
+            }
             if !payload.unassignedSidecars.isEmpty {
                 log("Kept \(payload.unassignedSidecars.count) unassigned sidecar(s) untouched")
             }
@@ -144,6 +164,7 @@ final class AppStore {
         guard sourceID != destinationID,
               let sourceIndex = shootGroups.firstIndex(where: { $0.id == sourceID }),
               let destinationIndex = shootGroups.firstIndex(where: { $0.id == destinationID }),
+              shootGroups[sourceIndex].sourceKind == shootGroups[destinationIndex].sourceKind,
               let fileIndex = shootGroups[sourceIndex].files.firstIndex(of: file) else { return }
         let moved = shootGroups[sourceIndex].files.remove(at: fileIndex)
         shootGroups[destinationIndex].files.append(moved)
@@ -166,6 +187,8 @@ final class AppStore {
                 id: UUID().uuidString,
                 name: "Shoot \(shootGroups.count + 1)",
                 kind: shootGroups[sourceIndex].kind,
+                sourceLabel: shootGroups[sourceIndex].sourceLabel,
+                sourceKind: shootGroups[sourceIndex].sourceKind,
                 files: related,
                 start: file.captureTime,
                 end: file.captureTime
@@ -177,7 +200,8 @@ final class AppStore {
     func mergeShoot(_ sourceID: String, into destinationID: String) {
         guard sourceID != destinationID,
               let sourceIndex = shootGroups.firstIndex(where: { $0.id == sourceID }),
-              let destinationIndex = shootGroups.firstIndex(where: { $0.id == destinationID }) else { return }
+              let destinationIndex = shootGroups.firstIndex(where: { $0.id == destinationID }),
+              shootGroups[sourceIndex].sourceKind == shootGroups[destinationIndex].sourceKind else { return }
         let files = shootGroups[sourceIndex].files
         shootGroups[destinationIndex].files.append(contentsOf: files)
         shootGroups.remove(at: sourceIndex)
@@ -188,21 +212,75 @@ final class AppStore {
         guard !sourcePath.isEmpty, !shootGroups.isEmpty else { return }
         let sourceURL = URL(fileURLWithPath: sourcePath)
         await perform("Verified ingest") {
-            for group in shootGroups where !group.videos.isEmpty {
+            for group in shootGroups where !group.files.isEmpty {
+                let existingProject = ingestDestinationProjectID.flatMap { destinationID in
+                    projects.first { $0.id == destinationID }
+                }
+                if group.sourceKind == .audio, existingProject == nil {
+                    throw BackendError.invalidOutput(
+                        "Choose an existing project before importing an audio-only Mic card."
+                    )
+                }
                 let volumeID = cards.first(where: { $0.mountPath == sourcePath })?.volumeUUID ?? "manual-\(sourceURL.lastPathComponent)"
                 let result = try await offloader.offload(
                     group: group,
                     sourceRoot: sourceURL,
                     activeProjectsRoot: URL(fileURLWithPath: activeProjectsRoot),
                     volumeUUID: volumeID,
+                    destinationProjectRoot: existingProject.map { URL(fileURLWithPath: $0.rootPath) },
                     progress: { [weak self] message in Task { @MainActor in self?.progressMessage = message } }
                 )
-                var project = ProjectRecord(name: group.name, rootPath: result.projectRoot.path, sourcePath: result.mediaRoot.path, kind: group.kind)
-                log("\(group.name): \(result.filesVerified) files copied and checksum-verified")
-                let status = try await backend.index(projectRoot: project.rootPath, source: project.sourcePath, interval: sampleInterval)
-                project.indexedAssets = status.assets
-                project.visualSamples = status.visualSamples
-                project.transcripts = status.transcripts
+                var project: ProjectRecord
+                if var existingProject {
+                    if !existingProject.sources.contains(where: { $0.path == result.mediaRoot.path }) {
+                        existingProject.sources.append(
+                            ProjectSourceRecord(
+                                label: group.sourceLabel,
+                                path: result.mediaRoot.path,
+                                kind: group.sourceKind
+                            )
+                        )
+                    }
+                    if group.sourceKind == .camera, existingProject.sourcePath.isEmpty {
+                        existingProject.sourcePath = result.mediaRoot.path
+                    }
+                    project = existingProject
+                } else {
+                    let profile: ShootProfile = group.kind == .personal ? .event : .communityStory
+                    project = ProjectRecord(
+                        name: group.name,
+                        rootPath: result.projectRoot.path,
+                        sourcePath: result.mediaRoot.path,
+                        kind: group.kind,
+                        profile: profile,
+                        sources: [
+                            ProjectSourceRecord(
+                                label: group.sourceLabel,
+                                path: result.mediaRoot.path,
+                                kind: group.sourceKind
+                            )
+                        ]
+                    )
+                }
+                log("\(group.name): \(result.filesVerified) files copied and checksum-verified into \(project.name)")
+                if group.sourceKind == .camera {
+                    let status = try await backend.index(
+                        projectRoot: project.rootPath,
+                        source: result.mediaRoot.path,
+                        sourceLabel: group.sourceLabel,
+                        interval: sampleInterval
+                    )
+                    project.indexedAssets = status.assets
+                    project.visualSamples = status.visualSamples
+                    project.transcripts = status.transcripts
+                } else {
+                    try await backend.registerSource(
+                        projectRoot: project.rootPath,
+                        source: result.mediaRoot.path,
+                        sourceLabel: group.sourceLabel,
+                        kind: .audio
+                    )
+                }
                 upsertProject(project)
                 do {
                     let resolve = try await backend.scaffold(project: project, timelineFPS: 30)
@@ -214,27 +292,96 @@ final class AppStore {
                     log("Ingest/index complete; Resolve preparation is waiting: \(error.localizedDescription)", error: true)
                 }
             }
-            selection = .search
+            selection = .project
         }
     }
 
-    func addExistingProject(name: String, root: String, source: String, kind: ProjectKind) async {
+    func addExistingProject(
+        name: String,
+        root: String,
+        source: String,
+        kind: ProjectKind,
+        profile: ShootProfile? = nil
+    ) async {
         guard !name.isEmpty, !root.isEmpty, !source.isEmpty else { return }
-        var project = ProjectRecord(name: name, rootPath: root, sourcePath: source, kind: kind)
+        let label = ProjectRecord.inferSourceLabel(source)
+        var project = ProjectRecord(
+            name: name,
+            rootPath: root,
+            sourcePath: source,
+            kind: kind,
+            profile: profile,
+            sources: [ProjectSourceRecord(label: label, path: source)]
+        )
         do {
+            try await backend.registerSource(
+                projectRoot: root,
+                source: source,
+                sourceLabel: label,
+                kind: .camera
+            )
             let status = try await backend.status(projectRoot: root)
             project.indexedAssets = status.assets
             project.visualSamples = status.visualSamples
             project.transcripts = status.transcripts
         } catch { }
         upsertProject(project)
-        selection = .search
+        selection = .project
+    }
+
+    func createProject(name: String, parentRoot: String, kind: ProjectKind, profile: ShootProfile) {
+        errorMessage = nil
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty,
+              !cleanName.contains("/"),
+              cleanName != ".",
+              cleanName != ".." else {
+            errorMessage = "Choose a project name without slashes."
+            return
+        }
+        let root = URL(fileURLWithPath: parentRoot)
+            .appendingPathComponent(kind.rawValue, isDirectory: true)
+            .appendingPathComponent(cleanName, isDirectory: true)
+        do {
+            for relative in ["Media", "Audio", "Assets", "Project", ".clip-resolved/analysis", ".clip-resolved/manifests"] {
+                try FileManager.default.createDirectory(
+                    at: root.appendingPathComponent(relative, isDirectory: true),
+                    withIntermediateDirectories: true
+                )
+            }
+            let project = ProjectRecord(
+                name: cleanName,
+                rootPath: root.path,
+                sourcePath: "",
+                kind: kind,
+                profile: profile,
+                sources: []
+            )
+            upsertProject(project)
+            ingestDestinationProjectID = project.id
+            selection = .project
+            log("Created empty \(profile.rawValue) project: \(cleanName)")
+        } catch {
+            errorMessage = "Could not create project: \(error.localizedDescription)"
+        }
     }
 
     func indexSelectedProject() async {
         guard var project = selectedProject else { return }
         await perform("Indexing \(project.name)") {
-            let status = try await backend.index(projectRoot: project.rootPath, source: project.sourcePath, interval: sampleInterval)
+            let cameraSources = project.sources.filter { $0.kind == .camera }
+            guard !cameraSources.isEmpty else {
+                throw BackendError.invalidOutput("This project has no registered camera source.")
+            }
+            var status = try await backend.status(projectRoot: project.rootPath)
+            for source in cameraSources {
+                status = try await backend.index(
+                    projectRoot: project.rootPath,
+                    source: source.path,
+                    sourceLabel: source.label,
+                    interval: sampleInterval
+                )
+            }
             project.indexedAssets = status.assets
             project.visualSamples = status.visualSamples
             project.transcripts = status.transcripts
@@ -245,12 +392,94 @@ final class AppStore {
 
     func prepareResolve() async {
         guard let project = selectedProject else { return }
+        guard project.sources.contains(where: { $0.kind == .camera }) else {
+            errorMessage = "Add at least one camera source before preparing Resolve."
+            return
+        }
         await perform("Preparing Resolve") {
+            for source in project.sources {
+                try await backend.registerSource(
+                    projectRoot: project.rootPath,
+                    source: source.path,
+                    sourceLabel: source.label,
+                    kind: source.kind
+                )
+            }
             let result = try await backend.scaffold(project: project, timelineFPS: 30)
             resolveMessage = result.frameRatesMatch
                 ? "Connected: \(result.project), \(result.sourceFiles) originals"
                 : "Action needed: Project Settings > Master Settings > Playback frame rate = \(result.timelineFPS ?? 30)"
             log(resolveMessage, error: !result.frameRatesMatch)
+        }
+    }
+
+    func addSource(label: String, path: String, kind: ProjectSourceKind, indexNow: Bool) async {
+        guard var project = selectedProject else { return }
+        let cleanLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanLabel.isEmpty, !cleanPath.isEmpty else { return }
+        guard FileManager.default.fileExists(atPath: cleanPath) else {
+            errorMessage = "That source folder does not exist: \(cleanPath)"
+            return
+        }
+        await perform("Adding \(cleanLabel)") {
+            try await backend.registerSource(
+                projectRoot: project.rootPath,
+                source: cleanPath,
+                sourceLabel: cleanLabel,
+                kind: kind
+            )
+            if let existing = project.sources.firstIndex(where: { $0.path == cleanPath }) {
+                project.sources[existing].label = cleanLabel
+                project.sources[existing].kind = kind
+            } else {
+                project.sources.append(ProjectSourceRecord(label: cleanLabel, path: cleanPath, kind: kind))
+            }
+            if kind == .camera, project.sourcePath.isEmpty {
+                project.sourcePath = cleanPath
+            }
+            if kind == .camera, indexNow {
+                let status = try await backend.index(
+                    projectRoot: project.rootPath,
+                    source: cleanPath,
+                    sourceLabel: cleanLabel,
+                    interval: sampleInterval
+                )
+                project.indexedAssets = status.assets
+                project.visualSamples = status.visualSamples
+                project.transcripts = status.transcripts
+            }
+            upsertProject(project)
+            log("Added \(cleanLabel) to \(project.name)\(indexNow && kind == .camera ? " and indexed it" : "")")
+        }
+    }
+
+    func setSelectedProjectProfile(_ profile: ShootProfile) {
+        guard var project = selectedProject else { return }
+        project.profile = profile
+        upsertProject(project)
+    }
+
+    func syncExternalAudio() async {
+        guard let project = selectedProject else { return }
+        await perform("Syncing external audio in Resolve") {
+            let result = try await backend.syncAudio(projectRoot: project.rootPath)
+            resolveMessage = "Synced \(result.videos) video clips with \(result.audioFiles) audio clips"
+            log(resolveMessage)
+        }
+    }
+
+    func createMulticam(syncMode: String = "audio") async {
+        guard let project = selectedProject else { return }
+        let name = "\(project.name.uppercased()) MULTICAM"
+        await perform("Creating multicam in Resolve") {
+            let result = try await backend.createMulticam(
+                projectRoot: project.rootPath,
+                name: name,
+                syncMode: syncMode
+            )
+            resolveMessage = "Created \(result.multicamClipsCreated) multicam clip(s)"
+            log("\(resolveMessage) using \(syncMode) sync")
         }
     }
 
@@ -283,7 +512,14 @@ final class AppStore {
     func transcribeSelectedProject() async {
         guard var project = selectedProject else { return }
         await perform("Transcribing \(project.name)") {
-            let status = try await backend.transcribe(projectRoot: project.rootPath, source: project.sourcePath)
+            let cameraSources = project.sources.filter { $0.kind == .camera }
+            guard !cameraSources.isEmpty else {
+                throw BackendError.invalidOutput("This project has no registered camera source.")
+            }
+            var status = try await backend.status(projectRoot: project.rootPath)
+            for source in cameraSources {
+                status = try await backend.transcribe(projectRoot: project.rootPath, source: source.path)
+            }
             project.indexedAssets = status.assets
             project.visualSamples = status.visualSamples
             project.transcripts = status.transcripts
@@ -367,11 +603,11 @@ final class AppStore {
                 pendingChatAction = PendingChatAction(
                     projectID: project.id,
                     kind: .createSmartSelects,
-                    title: "Build professional restaurant SELECTS package in Resolve",
+                    title: "Build \(project.profile.packageTitle) in Resolve",
                     query: nil,
                     timelineName: nil,
                     searchMode: nil,
-                    profile: intent.profile ?? "restaurant",
+                    profile: intent.profile ?? project.profile.backendName,
                     rangeCount: 0
                 )
             case .prepareResolve:
@@ -553,7 +789,7 @@ final class AppStore {
             case .createSmartSelects:
                 let result = try await backend.createSmartSelects(
                     projectRoot: project.rootPath,
-                    profile: action.profile ?? "restaurant",
+                    profile: action.profile ?? project.profile.backendName,
                     minScore: minScore,
                     pre: preHandle,
                     post: postHandle,
@@ -565,7 +801,7 @@ final class AppStore {
                     role: .assistant,
                     text: smartSelectsSummary(result)
                 )
-                log("Created restaurant SELECTS package from project chat")
+                log("Created \(project.profile.packageTitle) from project chat")
             case .openTimeline:
                 guard let name = action.timelineName else { return }
                 let result = try await backend.openTimeline(name)
@@ -793,12 +1029,12 @@ final class AppStore {
         }
     }
 
-    func createSmartSelects(profile: String = "restaurant") async {
+    func createSmartSelects(profile: String? = nil) async {
         guard let project = selectedProject else { return }
         await perform("Building professional SELECTS package") {
             let result = try await backend.createSmartSelects(
                 projectRoot: project.rootPath,
-                profile: profile,
+                profile: profile ?? project.profile.backendName,
                 minScore: minScore,
                 pre: preHandle,
                 post: postHandle,
@@ -861,6 +1097,8 @@ final class AppStore {
                 rootPath: project.rootPath,
                 sourcePath: project.sourcePath,
                 kind: project.kind,
+                profile: project.profile,
+                sources: project.sources,
                 createdAt: projects[index].createdAt,
                 indexedAssets: project.indexedAssets,
                 visualSamples: project.visualSamples,

@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-28T22:00:00Z",
+  "title": "Design System: Clip Resolved",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "System Accent",
+        "canonical": "Highlight",
+        "tonalRamp": ["#082f49", "#0c4a6e", "#0369a1", "#0284c7", "#0ea5e9", "#38bdf8", "#bae6fd", "#f0f9ff"]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "System Canvas",
+        "canonical": "Canvas",
+        "tonalRamp": ["#171717", "#262626", "#404040", "#737373", "#a3a3a3", "#d4d4d4", "#f5f5f5", "#ffffff"]
+      },
+      "primary-text": {
+        "role": "neutral",
+        "displayName": "Primary Text",
+        "canonical": "CanvasText",
+        "tonalRamp": ["#171717", "#262626", "#404040", "#737373", "#a3a3a3", "#d4d4d4", "#f5f5f5", "#ffffff"]
+      },
+      "secondary-text": {
+        "role": "neutral",
+        "displayName": "Secondary Text",
+        "canonical": "GrayText",
+        "tonalRamp": ["#171717", "#262626", "#404040", "#737373", "#a3a3a3", "#d4d4d4", "#f5f5f5", "#ffffff"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Workspace Title", "purpose": "Top-level workspace and sheet titles." },
+      "body": { "displayName": "Operational Body", "purpose": "Instructions, status, and conversation." },
+      "timecode": { "displayName": "Editorial Timecode", "purpose": "Aligned in/out points, durations, and scores." }
+    },
+    "shadows": [],
+    "motion": [],
+    "breakpoints": [
+      { "name": "minimum-window", "value": "860px" },
+      { "name": "default-window", "value": "1320px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single immediate next action in an operational region.",
+      "html": "<button class=\"ds-btn-primary\">CREATE IN RESOLVE</button>",
+      "css": ".ds-btn-primary { background: Highlight; color: Canvas; border: 0; border-radius: 6px; padding: 6px 12px; font: 600 13px -apple-system, BlinkMacSystemFont, sans-serif; } .ds-btn-primary:hover { filter: brightness(1.06); } .ds-btn-primary:focus-visible { outline: 3px solid Highlight; outline-offset: 2px; }"
+    },
+    {
+      "name": "Source Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Compact source identity, path, and media kind without dashboard ornament.",
+      "html": "<div class=\"ds-source-card\"><strong>OSMO</strong><span>/Media/OSMO</span><small>Camera</small></div>",
+      "css": ".ds-source-card { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; color: CanvasText; background: Canvas; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 10px; padding: 12px; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; } .ds-source-card span { color: GrayText; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-source-card small { color: GrayText; grid-row: 1 / span 2; grid-column: 2; align-self: center; }"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "description": "Native-feeling footage query entry with visible focus.",
+      "html": "<input class=\"ds-search\" value=\"food shots\" aria-label=\"Footage search\">",
+      "css": ".ds-search { width: 100%; color: CanvasText; background: Canvas; border: 1px solid color-mix(in srgb, CanvasText 24%, transparent); border-radius: 6px; padding: 7px 10px; font: 15px -apple-system, BlinkMacSystemFont, sans-serif; } .ds-search:focus-visible { outline: 3px solid color-mix(in srgb, Highlight 55%, transparent); border-color: Highlight; }"
+    },
+    {
+      "name": "Workspace Navigation",
+      "kind": "nav",
+      "description": "Stable macOS-style workspace destinations.",
+      "html": "<nav class=\"ds-nav\"><button class=\"ds-nav-active\">Project</button><button>Footage Search</button><button>Project Chat</button><button>Import Media</button><button>Activity</button></nav>",
+      "css": ".ds-nav { display: grid; gap: 3px; padding: 8px; background: color-mix(in srgb, Canvas 92%, CanvasText); font: 13px -apple-system, BlinkMacSystemFont, sans-serif; } .ds-nav button { border: 0; border-radius: 6px; padding: 6px 8px; text-align: left; color: CanvasText; background: transparent; } .ds-nav button:hover { background: color-mix(in srgb, Highlight 10%, transparent); } .ds-nav button:focus-visible { outline: 2px solid Highlight; } .ds-nav .ds-nav-active { background: color-mix(in srgb, Highlight 22%, transparent); }"
+    },
+    {
+      "name": "Timestamp Evidence",
+      "kind": "custom",
+      "description": "Playable evidence with source identity and exact handled range.",
+      "html": "<button class=\"ds-evidence\"><span class=\"ds-thumb\"></span><span><strong>DJI_0001.MP4</strong><code>00:00:12.00 – 00:00:21.00</code></span><b>▶</b></button>",
+      "css": ".ds-evidence { width: 100%; display: grid; grid-template-columns: 112px 1fr auto; gap: 10px; align-items: center; color: CanvasText; background: color-mix(in srgb, CanvasText 7%, Canvas); border: 0; border-radius: 10px; padding: 10px; text-align: left; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; } .ds-evidence:hover { background: color-mix(in srgb, Highlight 12%, Canvas); } .ds-evidence:focus-visible { outline: 3px solid Highlight; } .ds-evidence span:not(.ds-thumb) { display: grid; gap: 4px; min-width: 0; } .ds-evidence code { color: GrayText; font: 12px ui-monospace, SFMono-Regular, monospace; } .ds-thumb { aspect-ratio: 16 / 9; border-radius: 6px; background: color-mix(in srgb, CanvasText 18%, Canvas); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Edit Console",
+    "overview": "Clip Resolved is a calm, information-dense native macOS companion. The interface should feel like a trustworthy extension of an editing suite: project state is visible, media operations are explicit, and the current task has one obvious place to happen. System materials and controls supply familiarity; the product supplies editorial hierarchy and precise language. The experience favors durable workspaces over stacked dashboards. Project setup, search, chat, ingest, and activity each have their own navigation destination. Footage preview is an adjustable inspector in the same window, never a floating overlay that hides the active task.",
+    "keyCharacteristics": [
+      "Native macOS navigation, materials, controls, and semantic colors.",
+      "Compact professional density with 24px page margins and 20px section rhythm.",
+      "Source paths, timecodes, sync methods, and mutation boundaries remain visible.",
+      "Responsive horizontal arrangements collapse into vertical stacks before controls crowd or overlap."
+    ],
+    "rules": [
+      { "name": "The Semantic Color Rule", "body": "Never replace adaptive system colors with fixed light-mode grays or decorative brand gradients.", "section": "colors" },
+      { "name": "The One Primary Action Rule", "body": "A region may contain several operations, but only its immediate next step receives prominent accent treatment.", "section": "colors" },
+      { "name": "The Editorial Precision Rule", "body": "Time-based and numeric editing evidence uses monospaced digits; prose does not.", "section": "typography" },
+      { "name": "The No Overlay Rule", "body": "Persistent work surfaces use split views, sheets, or inspectors. They do not cover chat, search results, or primary controls.", "section": "layout" },
+      { "name": "The Native Depth Rule", "body": "Let macOS provide window, sheet, menu, popover, and inspector depth. Do not add custom card shadows to imitate a web dashboard.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep project/source readiness visible before Resolve actions.",
+      "Do use adaptive stacks and verify the 860px minimum window width.",
+      "Do keep selected-range playback distinct from full-source context.",
+      "Do preserve native semantics, keyboard behavior, VoiceOver labels, and dark-mode adaptation.",
+      "Do use exact editorial language: source, range, chronology, waveform, timecode, multicam, and Resolve."
+    ],
+    "donts": [
+      "Don't build fixed-width panels that cover or crush the active workspace.",
+      "Don't scatter ingest, indexing, transcription, sync, multicam, and package creation across unrelated toolbars.",
+      "Don't present the product as a generic chatbot or decorative AI dashboard.",
+      "Don't imply footage was watched, synchronized, or changed when only a request was staged.",
+      "Don't hide source paths, original-media boundaries, or the method used for a consequential Resolve operation."
+    ]
+  }
+}

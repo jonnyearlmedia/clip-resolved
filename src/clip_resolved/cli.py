@@ -9,6 +9,7 @@ from pathlib import Path
 from .resolve import ResolveAdapter, ResolveUnavailable
 from .ingest import scan_source
 from .semantic import index_media, search
+from .sources import load_sources, register_source
 from .store import IndexStore
 from .synthcut import SynthCutClipBridge, SynthCutBridgeError
 from .transcript import index_transcripts, search_transcripts, transcript_moments
@@ -100,6 +101,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def cmd_index(args: argparse.Namespace) -> int:
     project_root = Path(args.project_root).expanduser().resolve()
     source = Path(args.source).expanduser().resolve()
+    registered = register_source(
+        project_root,
+        source,
+        label=args.source_label,
+        kind=args.source_kind,
+    )
     with IndexStore.for_project(project_root) as store, SynthCutClipBridge(_repo_root()) as bridge:
         assets = index_media(
             source,
@@ -115,8 +122,33 @@ def cmd_index(args: argparse.Namespace) -> int:
                 "assets_seen": len(assets),
                 "assets_in_store": store.asset_count(),
                 "visual_samples": store.visual_sample_count(),
+                "source": {
+                    "label": registered.label,
+                    "path": registered.path,
+                    "kind": registered.kind,
+                },
             }
         )
+    return 0
+
+
+def cmd_register_source(args: argparse.Namespace) -> int:
+    source = register_source(
+        args.project_root,
+        args.source,
+        label=args.source_label,
+        kind=args.source_kind,
+    )
+    _json_dump(
+        {
+            "project_root": str(Path(args.project_root).expanduser().resolve()),
+            "source": {"label": source.label, "path": source.path, "kind": source.kind},
+            "sources": [
+                {"label": item.label, "path": item.path, "kind": item.kind}
+                for item in load_sources(args.project_root)
+            ],
+        }
+    )
     return 0
 
 
@@ -142,6 +174,12 @@ def cmd_project_status(args: argparse.Namespace) -> int:
 
 
 def cmd_resolve_scaffold(args: argparse.Namespace) -> int:
+    register_source(
+        args.project_root,
+        args.source,
+        label=args.source_label,
+        kind="camera",
+    )
     result = ResolveAdapter(_repo_root()).scaffold_project(
         project_name=args.project_name,
         project_root=Path(args.project_root),
@@ -159,6 +197,27 @@ def cmd_resolve_timelines(args: argparse.Namespace) -> int:
 
 def cmd_open_timeline(args: argparse.Namespace) -> int:
     _json_dump(ResolveAdapter(_repo_root()).activate_timeline(args.timeline_name))
+    return 0
+
+
+def cmd_sync_audio(args: argparse.Namespace) -> int:
+    _json_dump(
+        ResolveAdapter(_repo_root()).auto_sync_audio(
+            Path(args.project_root),
+            retain_embedded_audio=not args.replace_embedded_audio,
+        )
+    )
+    return 0
+
+
+def cmd_create_multicam(args: argparse.Namespace) -> int:
+    _json_dump(
+        ResolveAdapter(_repo_root()).create_multicam(
+            Path(args.project_root),
+            name=args.name,
+            sync_mode=args.sync_mode,
+        )
+    )
     return 0
 
 
@@ -663,10 +722,21 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--project-root", required=True)
     status.set_defaults(func=cmd_project_status)
 
+    register = sub.add_parser(
+        "register-source",
+        help="Add or update a camera/audio source in a project's durable source manifest",
+    )
+    register.add_argument("--project-root", required=True)
+    register.add_argument("--source", required=True)
+    register.add_argument("--source-label")
+    register.add_argument("--source-kind", choices=["camera", "audio"], default="camera")
+    register.set_defaults(func=cmd_register_source)
+
     scaffold = sub.add_parser("resolve-scaffold", help="Create/load a Resolve project and import originals")
     scaffold.add_argument("--project-root", required=True)
     scaffold.add_argument("--project-name", required=True)
     scaffold.add_argument("--source", required=True)
+    scaffold.add_argument("--source-label")
     scaffold.add_argument("--timeline-fps", type=float, default=30.0)
     scaffold.set_defaults(func=cmd_resolve_scaffold)
 
@@ -683,9 +753,32 @@ def build_parser() -> argparse.ArgumentParser:
     open_timeline.add_argument("--timeline-name", required=True)
     open_timeline.set_defaults(func=cmd_open_timeline)
 
+    sync_audio = sub.add_parser(
+        "sync-audio",
+        help="Waveform-sync registered external audio to imported camera clips in Resolve 21.1+",
+    )
+    sync_audio.add_argument("--project-root", required=True)
+    sync_audio.add_argument(
+        "--replace-embedded-audio",
+        action="store_true",
+        help="Discard embedded camera audio after sync instead of retaining it",
+    )
+    sync_audio.set_defaults(func=cmd_sync_audio)
+
+    multicam = sub.add_parser(
+        "create-multicam",
+        help="Create Resolve multicam media from all registered camera sources",
+    )
+    multicam.add_argument("--project-root", required=True)
+    multicam.add_argument("--name", required=True)
+    multicam.add_argument("--sync-mode", choices=["audio", "timecode"], default="audio")
+    multicam.set_defaults(func=cmd_create_multicam)
+
     index = sub.add_parser("index", help="Build/update the persistent visual index")
     index.add_argument("--project-root", required=True)
     index.add_argument("--source", required=True, help="Folder or source video to index")
+    index.add_argument("--source-label")
+    index.add_argument("--source-kind", choices=["camera"], default="camera")
     index.add_argument("--interval", type=float, default=2.0, help="Frame sampling interval in seconds")
     index.add_argument("--force", action="store_true", help="Re-index unchanged assets")
     index.set_defaults(func=cmd_index)
@@ -759,7 +852,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Create a shoot-aware category SELECTS package and one global NOT SELECTED review timeline",
     )
     smart_selects.add_argument("--project-root", required=True)
-    smart_selects.add_argument("--profile", default="restaurant", choices=["restaurant"])
+    smart_selects.add_argument(
+        "--profile",
+        default="restaurant",
+        choices=["restaurant", "community-story", "event"],
+    )
     smart_selects.add_argument("--limit", type=int, default=80)
     smart_selects.add_argument("--per-asset-limit", type=int, default=30)
     smart_selects.add_argument("--min-score", type=float, default=0.22)

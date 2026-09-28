@@ -6,15 +6,10 @@ struct IngestView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Ingest camera media")
-                        .font(.largeTitle.bold())
-                    Text("Scan read-only, confirm every shoot, then copy and checksum-verify before analysis.")
-                        .foregroundStyle(.secondary)
-                }
+                PageHeader(title: "Import Media", subtitle: "Scan read-only, confirm each camera or recorder source, then copy and checksum-verify it into the chosen project.")
 
                 if !store.cards.isEmpty {
-                    GroupBox("Detected camera media") {
+                    GroupBox("Detected removable media") {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(store.cards, id: \.volumeUUID) { card in
                                 HStack {
@@ -34,9 +29,9 @@ struct IngestView: View {
 
                 GroupBox("Source") {
                     HStack {
-                        TextField("Camera card or existing footage folder", text: $store.sourcePath)
+                        TextField("Camera, recorder card, or existing media folder", text: $store.sourcePath)
                         Button("Choose…") {
-                            if let url = FolderPicker.chooseFolder(prompt: "Choose an Osmo card or footage folder", startingAt: store.sourcePath) {
+                            if let url = FolderPicker.chooseFolder(prompt: "Choose a camera, recorder card, or media folder", startingAt: store.sourcePath) {
                                 store.sourcePath = url.path
                             }
                         }
@@ -49,6 +44,7 @@ struct IngestView: View {
                 if let payload = store.scanPayload {
                     HStack(spacing: 22) {
                         Metric(value: "\(payload.videoCount)", label: "videos")
+                        Metric(value: "\(payload.audioCount)", label: "audio files")
                         Metric(value: ByteCountFormatter.string(fromByteCount: payload.totalBytes, countStyle: .file), label: "on source")
                         Metric(value: "\(payload.groups.count)", label: "proposed shoots")
                     }
@@ -63,9 +59,15 @@ struct IngestView: View {
                                         ForEach(ProjectKind.allCases) { kind in Text(kind.rawValue).tag(kind) }
                                     }
                                     .frame(width: 170)
+                                    TextField(group.sourceKind == .audio ? "Recorder" : "Camera", text: $group.sourceLabel)
+                                        .frame(width: 170)
+                                        .accessibilityLabel(group.sourceKind == .audio ? "Recorder label" : "Camera label")
+                                    Label(group.sourceKind.rawValue, systemImage: group.sourceKind == .audio ? "waveform" : "video")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
                                     if store.shootGroups.count > 1 {
                                         Menu("Merge") {
-                                            ForEach(store.shootGroups.filter { $0.id != group.id }) { destination in
+                                            ForEach(store.shootGroups.filter { $0.id != group.id && $0.sourceKind == group.sourceKind }) { destination in
                                                 Button("Into \(destination.name)") {
                                                     store.mergeShoot(group.id, into: destination.id)
                                                 }
@@ -73,20 +75,21 @@ struct IngestView: View {
                                         }
                                     }
                                 }
-                                Text("\(group.videos.count) videos · \(ByteCountFormatter.string(fromByteCount: group.totalBytes, countStyle: .file))")
+                                Text("\(group.videos.count) videos · \(group.audioFiles.count) audio · \(ByteCountFormatter.string(fromByteCount: group.totalBytes, countStyle: .file))")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                 Divider()
-                                ForEach(group.videos) { file in
+                                ForEach(group.files.filter { $0.kind == "video" || $0.kind == "audio" }) { file in
                                     HStack {
-                                        Image(systemName: file.width < file.height ? "rectangle.portrait" : "rectangle")
+                                        Image(systemName: file.kind == "audio" ? "waveform" : (file.width < file.height ? "rectangle.portrait" : "rectangle"))
                                             .foregroundStyle(.secondary)
                                         Text(URL(fileURLWithPath: file.path).lastPathComponent)
                                         Spacer()
-                                        Text("\(file.fps, specifier: "%.2f") fps")
+                                        Text(file.kind == "audio" ? "Audio" : "\(file.fps, specifier: "%.2f") fps")
                                             .font(.caption.monospacedDigit())
                                             .foregroundStyle(.secondary)
-                                        Menu("Assign") {
+                                        if group.sourceKind == .camera {
+                                            Menu("Assign") {
                                             if group.videos.count > 1 {
                                                 Button("Split to New Shoot") {
                                                     store.splitIntoNewShoot(file: file, from: group.id)
@@ -94,14 +97,15 @@ struct IngestView: View {
                                                 Divider()
                                             }
                                             if store.shootGroups.count > 1 {
-                                                ForEach(store.shootGroups.filter { $0.id != group.id }) { destination in
+                                                ForEach(store.shootGroups.filter { $0.id != group.id && $0.sourceKind == group.sourceKind }) { destination in
                                                     Button("Move to \(destination.name)") {
                                                         store.move(file: file, from: group.id, to: destination.id)
                                                     }
                                                 }
                                             }
+                                            }
+                                            .menuStyle(.borderlessButton)
                                         }
-                                        .menuStyle(.borderlessButton)
                                     }
                                 }
                             }
@@ -111,11 +115,29 @@ struct IngestView: View {
                     }
 
                     GroupBox("Destination") {
-                        HStack {
-                            TextField("Active Projects root", text: $store.activeProjectsRoot)
-                            Button("Choose…") {
-                                if let url = FolderPicker.chooseFolder(prompt: "Choose the Active Projects folder", startingAt: store.activeProjectsRoot) {
-                                    store.activeProjectsRoot = url.path
+                        VStack(alignment: .leading, spacing: 10) {
+                            Picker("Add media to", selection: $store.ingestDestinationProjectID) {
+                                Text("Create a new project for each confirmed shoot")
+                                    .tag(Optional<ProjectRecord.ID>.none)
+                                ForEach(store.projects) { project in
+                                    Text("Existing project: \(project.name)")
+                                        .tag(Optional(project.id))
+                                }
+                            }
+                            if let destinationID = store.ingestDestinationProjectID,
+                               let project = store.projects.first(where: { $0.id == destinationID }) {
+                                Label(project.rootPath, systemImage: "folder")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            } else {
+                                HStack {
+                                    TextField("Active Projects root", text: $store.activeProjectsRoot)
+                                    Button("Choose…") {
+                                        if let url = FolderPicker.chooseFolder(prompt: "Choose the Active Projects folder", startingAt: store.activeProjectsRoot) {
+                                            store.activeProjectsRoot = url.path
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -123,17 +145,27 @@ struct IngestView: View {
 
                     HStack {
                         Spacer()
-                        Button("Confirm Groups and Begin Verified Ingest") {
+                        Button(store.ingestDestinationProjectID == nil ? "Confirm Groups and Begin Verified Ingest" : "Verify and Add Media to Project") {
                             Task { await store.confirmAndIngest() }
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
-                        .disabled(store.isBusy || store.shootGroups.contains { $0.name.trimmingCharacters(in: .whitespaces).isEmpty })
+                        .disabled(
+                            store.isBusy
+                                || store.shootGroups.contains { $0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+                                || (store.ingestDestinationProjectID == nil && store.shootGroups.contains { $0.sourceKind == .audio })
+                        )
+                        .help(
+                            store.ingestDestinationProjectID == nil && store.shootGroups.contains { $0.sourceKind == .audio }
+                                ? "Choose an existing project before importing a Mic card."
+                                : "Copy, checksum-verify, register, and index these sources."
+                        )
                     }
                 }
             }
             .padding(24)
-            .frame(maxWidth: 980, alignment: .leading)
+            .frame(maxWidth: ClipResolvedDesign.contentMaxWidth, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
         .navigationTitle("Ingest")
     }

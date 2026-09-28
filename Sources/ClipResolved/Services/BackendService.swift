@@ -95,13 +95,32 @@ actor BackendService {
         try await decode(ProjectStatus.self, arguments: ["status", "--project-root", projectRoot])
     }
 
-    func index(projectRoot: String, source: String, interval: Double) async throws -> ProjectStatus {
-        _ = try await run(["index", "--project-root", projectRoot, "--source", source, "--interval", String(interval)])
+    func index(projectRoot: String, source: String, sourceLabel: String, interval: Double) async throws -> ProjectStatus {
+        _ = try await run([
+            "index", "--project-root", projectRoot,
+            "--source", source,
+            "--source-label", sourceLabel,
+            "--interval", String(interval),
+        ])
         return try await status(projectRoot: projectRoot)
     }
 
+    func registerSource(
+        projectRoot: String,
+        source: String,
+        sourceLabel: String,
+        kind: ProjectSourceKind
+    ) async throws {
+        _ = try await run([
+            "register-source", "--project-root", projectRoot,
+            "--source", source,
+            "--source-label", sourceLabel,
+            "--source-kind", kind.backendName,
+        ])
+    }
+
     func moments(projectRoot: String, query: String, minScore: Double, pre: Double, post: Double, minimum: Double) async throws -> [MomentResult] {
-        try await decode(
+        return try await decode(
             [MomentResult].self,
             arguments: [
                 "moments", "--project-root", projectRoot, query,
@@ -185,14 +204,42 @@ actor BackendService {
     }
 
     func scaffold(project: ProjectRecord, timelineFPS: Double) async throws -> ResolveScaffoldResult {
-        try await decode(
+        guard let primaryCamera = project.sources.first(where: { $0.kind == .camera }) else {
+            throw BackendError.invalidOutput("Add at least one camera source before preparing Resolve.")
+        }
+        let source = project.sourcePath.isEmpty ? primaryCamera.path : project.sourcePath
+        let sourceLabel = project.sources.first(where: { $0.path == source })?.label ?? primaryCamera.label
+        return try await decode(
             ResolveScaffoldResult.self,
             arguments: [
                 "resolve-scaffold",
                 "--project-root", project.rootPath,
                 "--project-name", project.name,
-                "--source", project.sourcePath,
+                "--source", source,
+                "--source-label", sourceLabel,
                 "--timeline-fps", String(timelineFPS),
+            ]
+        )
+    }
+
+    func syncAudio(projectRoot: String) async throws -> AudioSyncResult {
+        try await decode(
+            AudioSyncResult.self,
+            arguments: ["sync-audio", "--project-root", projectRoot]
+        )
+    }
+
+    func createMulticam(
+        projectRoot: String,
+        name: String,
+        syncMode: String
+    ) async throws -> MulticamResult {
+        try await decode(
+            MulticamResult.self,
+            arguments: [
+                "create-multicam", "--project-root", projectRoot,
+                "--name", name,
+                "--sync-mode", syncMode,
             ]
         )
     }

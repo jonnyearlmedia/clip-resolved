@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS assets (
     has_audio INTEGER NOT NULL,
     size INTEGER NOT NULL,
     mtime_ns INTEGER NOT NULL,
+    capture_time REAL,
     indexed_at REAL
 );
 
@@ -52,6 +53,12 @@ class IndexStore:
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        columns = {
+            row["name"] for row in self.conn.execute("PRAGMA table_info(assets)")
+        }
+        if "capture_time" not in columns:
+            self.conn.execute("ALTER TABLE assets ADD COLUMN capture_time REAL")
+            self.conn.commit()
 
     @classmethod
     def for_project(cls, project_root: str | Path) -> "IndexStore":
@@ -81,8 +88,8 @@ class IndexStore:
         self.conn.execute(
             """
             INSERT INTO assets (
-              id, path, duration, fps, width, height, has_audio, size, mtime_ns
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              id, path, duration, fps, width, height, has_audio, size, mtime_ns, capture_time
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(path) DO UPDATE SET
               id=excluded.id,
               duration=excluded.duration,
@@ -96,7 +103,8 @@ class IndexStore:
                 ELSE assets.indexed_at
               END,
               size=excluded.size,
-              mtime_ns=excluded.mtime_ns
+              mtime_ns=excluded.mtime_ns,
+              capture_time=excluded.capture_time
             """,
             (
                 asset.id,
@@ -108,6 +116,7 @@ class IndexStore:
                 int(asset.has_audio),
                 asset.size,
                 asset.mtime_ns,
+                asset.capture_time,
             ),
         )
         if changed and existing:
@@ -150,7 +159,7 @@ class IndexStore:
             """
             SELECT
               a.id, a.path, a.duration, a.fps, a.width, a.height, a.has_audio,
-              a.size, a.mtime_ns,
+              a.size, a.mtime_ns, a.capture_time,
               v.time, v.embedding_json
             FROM visual_samples v
             JOIN assets a ON a.id = v.asset_id
@@ -168,6 +177,7 @@ class IndexStore:
                 has_audio=bool(row["has_audio"]),
                 size=int(row["size"]),
                 mtime_ns=int(row["mtime_ns"]),
+                capture_time=float(row["capture_time"]) if row["capture_time"] is not None else None,
             )
             embedding = tuple(float(v) for v in json.loads(row["embedding_json"]))
             yield asset, VisualSample(asset_id=asset.id, time=float(row["time"]), embedding=embedding)
@@ -190,6 +200,7 @@ class IndexStore:
             has_audio=bool(row["has_audio"]),
             size=int(row["size"]),
             mtime_ns=int(row["mtime_ns"]),
+            capture_time=float(row["capture_time"]) if row["capture_time"] is not None else None,
         )
 
     def iter_assets(self) -> Iterator[MediaAsset]:

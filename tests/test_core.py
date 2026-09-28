@@ -5,6 +5,8 @@ from clip_resolved.semantic import sample_times, search
 from clip_resolved.store import IndexStore
 from clip_resolved.cli import _timecode
 from clip_resolved.workflow import (
+    COMMUNITY_STORY_SELECTS_PROFILE,
+    EVENT_SELECTS_PROFILE,
     RESTAURANT_SELECTS_PROFILE,
     all_source_moments,
     default_remainder_timeline_name,
@@ -43,6 +45,13 @@ def test_timeline_name_from_arbitrary_query():
 
 def test_restaurant_profile_restores_original_category_package():
     assert selects_profile("restaurant") == RESTAURANT_SELECTS_PROFILE
+
+
+def test_shoot_profiles_are_distinct_and_ordered():
+    assert selects_profile("community story") == COMMUNITY_STORY_SELECTS_PROFILE
+    assert selects_profile("baby shower") == EVENT_SELECTS_PROFILE
+    assert COMMUNITY_STORY_SELECTS_PROFILE[0].timeline_name == "INTERVIEW SETUPS SELECTS"
+    assert EVENT_SELECTS_PROFILE[0].timeline_name == "CEREMONY KEY MOMENTS SELECTS"
     assert [category.timeline_name for category in RESTAURANT_SELECTS_PROFILE] == [
         "FOOD SHOTS SELECTS",
         "EXTERIOR STOREFRONT SELECTS",
@@ -97,6 +106,23 @@ def test_all_source_stringout_contains_each_original_once_in_path_order(tmp_path
     assert [moment.source_path.name for moment in moments] == ["DJI_0001.MP4", "DJI_0002.MP4"]
     assert [moment.metadata["source_start_frame"] for moment in moments] == [0, 0]
     assert [moment.metadata["source_end_frame"] for moment in moments] == [300, 1200]
+
+
+def test_event_stringout_uses_capture_time_across_camera_names(tmp_path: Path):
+    osmo = asset(tmp_path / "DJI_9999.MP4")
+    osmo = MediaAsset(**{**osmo.__dict__, "capture_time": 200.0})
+    phone = MediaAsset(
+        **{
+            **osmo.__dict__,
+            "id": "asset-phone",
+            "path": tmp_path / "IMG_0001.MOV",
+            "capture_time": 100.0,
+        }
+    )
+
+    moments = all_source_moments({osmo.id: osmo, phone.id: phone})
+
+    assert [moment.source_path.name for moment in moments] == ["IMG_0001.MOV", "DJI_9999.MP4"]
 
 
 def test_unselected_moments_are_exact_source_frame_complement(tmp_path: Path):

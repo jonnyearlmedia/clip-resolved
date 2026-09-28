@@ -41,7 +41,7 @@ private struct ClaudeResultEnvelope: Decodable {
 actor ClaudeChatService {
     private let decoder = JSONDecoder()
 
-    private static let responseSchema = #"{"type":"object","properties":{"message":{"type":"string"},"action":{"type":"string","enum":["answer","search_visual","search_transcript","propose_selects","propose_smart_selects","prepare_resolve"]},"query":{"type":["string","null"]},"timeline_name":{"type":["string","null"]},"search_mode":{"type":["string","null"],"enum":["Visual","Spoken words",null]},"profile":{"type":["string","null"],"enum":["restaurant",null]},"memory_updates":{"type":"array","items":{"type":"object","properties":{"scope":{"type":"string","enum":["All projects","This project"]},"category":{"type":"string"},"content":{"type":"string"}},"required":["scope","category","content"],"additionalProperties":false}},"pre_handle_seconds":{"type":["number","null"]},"post_handle_seconds":{"type":["number","null"]},"minimum_duration_seconds":{"type":["number","null"]}},"required":["message","action","query","timeline_name","search_mode","profile","memory_updates","pre_handle_seconds","post_handle_seconds","minimum_duration_seconds"],"additionalProperties":false}"#
+    private static let responseSchema = #"{"type":"object","properties":{"message":{"type":"string"},"action":{"type":"string","enum":["answer","search_visual","search_transcript","propose_selects","propose_smart_selects","prepare_resolve"]},"query":{"type":["string","null"]},"timeline_name":{"type":["string","null"]},"search_mode":{"type":["string","null"],"enum":["Visual","Spoken words",null]},"profile":{"type":["string","null"],"enum":["restaurant","community-story","event",null]},"memory_updates":{"type":"array","items":{"type":"object","properties":{"scope":{"type":"string","enum":["All projects","This project"]},"category":{"type":"string"},"content":{"type":"string"}},"required":["scope","category","content"],"additionalProperties":false}},"pre_handle_seconds":{"type":["number","null"]},"post_handle_seconds":{"type":["number","null"]},"minimum_duration_seconds":{"type":["number","null"]}},"required":["message","action","query","timeline_name","search_mode","profile","memory_updates","pre_handle_seconds","post_handle_seconds","minimum_duration_seconds"],"additionalProperties":false}"#
 
     private static let systemPrompt = """
     You are the project assistant inside Clip Resolved, a local footage-intelligence companion for DaVinci Resolve.
@@ -53,7 +53,7 @@ actor ClaudeChatService {
     - search_visual: find something visible in footage. Put a concise CLIP-friendly search phrase in query. Also provide a short editorial timeline_name ending in SELECTS that preserves the user's concept, such as FOOD SHOTS SELECTS. A successful search automatically offers that Resolve timeline for confirmation.
     - search_transcript: find words that were spoken. Put the requested phrase/topic in query and provide a short editorial timeline_name ending in SELECTS. A successful search automatically offers that Resolve timeline for confirmation.
     - propose_selects: the user wants a Resolve SELECTS timeline. Supply query, a concise uppercase timeline_name ending in SELECTS, and Visual or Spoken words as search_mode. The app will search first, require confirmation, then create both the main SELECTS and an exact NOT SELECTED source-frame complement for review.
-    - propose_smart_selects: the user wants the footage professionally organized into an initial shoot-aware package rather than one query. For restaurant, food, or hospitality footage, set profile to restaurant. The app will require confirmation, then create 00 ALL RAW FOOTAGE STRINGOUT, the ordered category timelines, and one global ALL FOOTAGE NOT SELECTED REVIEW timeline.
+    - propose_smart_selects: the user wants the footage professionally organized into an initial shoot-aware package rather than one query. Use restaurant for food/hospitality b-roll, community-story for interviews and community profiles, and event for weddings, showers, parties, and family events. Event packages preserve capture chronology first, then create moment categories. The app will require confirmation, then create 00 ALL RAW FOOTAGE STRINGOUT, the ordered category timelines, and one global ALL FOOTAGE NOT SELECTED REVIEW timeline.
     - prepare_resolve: the user explicitly asks to create, connect, import, or prepare the Resolve project. The app will require confirmation.
 
     Memory rules:
@@ -103,6 +103,8 @@ actor ClaudeChatService {
         project root: \(project.rootPath)
         original footage folder: \(project.sourcePath)
         project type: \(project.kind.rawValue)
+        editorial profile: \(project.profile.rawValue) (\(project.profile.backendName))
+        registered sources: \(project.sources.map { "\($0.label) [\($0.kind.rawValue)]: \($0.path)" }.joined(separator: "; "))
         indexed clips: \(project.indexedAssets)
         visual samples: \(project.visualSamples)
         timed transcripts: \(project.transcripts ?? 0)

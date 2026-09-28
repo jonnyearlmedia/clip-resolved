@@ -14,6 +14,7 @@ struct ContentView: View {
         } detail: {
             Group {
                 switch store.selection {
+                case .project: ProjectView(store: store)
                 case .ingest: IngestView(store: store)
                 case .chat: ChatView(store: store)
                 case .search: SearchView(store: store)
@@ -23,17 +24,21 @@ struct ContentView: View {
             .safeAreaInset(edge: .bottom) {
                 StatusBar(store: store)
             }
-        }
-        .safeAreaInset(edge: .trailing, spacing: 0) {
-            if let evidence = store.previewEvidence {
-                HStack(spacing: 0) {
-                    Divider()
+            .inspector(isPresented: Binding(
+                get: { store.previewEvidence != nil },
+                set: { if !$0 { store.previewEvidence = nil } }
+            )) {
+                if let evidence = store.previewEvidence {
                     FootagePreviewSidebarView(
                         evidence: evidence,
                         onClose: { store.previewEvidence = nil }
                     )
                     .id(evidence.id)
-                    .frame(width: 480)
+                    .inspectorColumnWidth(
+                        min: ClipResolvedDesign.inspectorMinWidth,
+                        ideal: ClipResolvedDesign.inspectorIdealWidth,
+                        max: ClipResolvedDesign.inspectorMaxWidth
+                    )
                 }
             }
         }

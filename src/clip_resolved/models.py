@@ -16,6 +16,7 @@ class MediaAsset:
     has_audio: bool
     size: int
     mtime_ns: int
+    capture_time: float | None = None
 
 
 @dataclass(frozen=True)
