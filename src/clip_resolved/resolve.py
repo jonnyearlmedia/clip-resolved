@@ -156,6 +156,45 @@ class ResolveAdapter:
             counter += 1
         return f"{base} {counter}"
 
+    @staticmethod
+    def _timelines(project) -> list:
+        return [
+            timeline
+            for index in range(1, int(project.GetTimelineCount() or 0) + 1)
+            if (timeline := project.GetTimelineByIndex(index)) is not None
+        ]
+
+    def timeline_state(self) -> dict:
+        resolve = self.connect()
+        manager = resolve.GetProjectManager()
+        project = manager.GetCurrentProject() if manager else None
+        if project is None:
+            raise ResolveUnavailable("No current Resolve project is open")
+        self.require_saved_current_project(manager, project)
+        current = project.GetCurrentTimeline()
+        return {
+            "project": project.GetName(),
+            "timelines": [timeline.GetName() for timeline in self._timelines(project)],
+            "current_timeline": current.GetName() if current else None,
+        }
+
+    def activate_timeline(self, timeline_name: str) -> dict:
+        resolve = self.connect()
+        manager = resolve.GetProjectManager()
+        project = manager.GetCurrentProject() if manager else None
+        if project is None:
+            raise ResolveUnavailable("No current Resolve project is open")
+        self.require_saved_current_project(manager, project)
+        timeline = next(
+            (item for item in self._timelines(project) if item.GetName() == timeline_name),
+            None,
+        )
+        if timeline is None:
+            raise RuntimeError(f"Resolve timeline not found: {timeline_name}")
+        if project.SetCurrentTimeline(timeline) is False:
+            raise RuntimeError(f"Resolve could not open timeline: {timeline_name}")
+        return {"project": project.GetName(), "timeline": timeline.GetName(), "opened": True}
+
     @classmethod
     def _project_has_media(cls, project) -> bool:
         try:

@@ -565,6 +565,16 @@ final class AppStore {
                     text: smartSelectsSummary(result)
                 )
                 log("Created restaurant SELECTS package from project chat")
+            case .openTimeline:
+                guard let name = action.timelineName else { return }
+                let result = try await backend.openTimeline(name)
+                resolveMessage = "Opened \(result.timeline)"
+                appendChat(
+                    projectID: project.id,
+                    role: .assistant,
+                    text: "Opened the existing \(result.timeline) timeline in Resolve. No duplicate timeline was created."
+                )
+                log("Opened existing Resolve timeline: \(result.timeline)")
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -579,18 +589,27 @@ final class AppStore {
         appendChat(projectID: action.projectID, role: .assistant, text: "Cancelled. Resolve was not changed.")
     }
 
-    func stageSuggestedChatAction(_ suggested: ChatSuggestedAction, projectID: UUID) {
+    func stageSuggestedChatAction(_ suggested: ChatSuggestedAction, projectID: UUID) async {
         guard projects.contains(where: { $0.id == projectID }) else { return }
-        pendingChatAction = PendingChatAction(
-            projectID: projectID,
-            kind: .createSelects,
-            title: "Create \(suggested.timelineName) in Resolve",
-            query: suggested.query,
-            timelineName: suggested.timelineName,
-            searchMode: suggested.searchMode,
-            profile: nil,
-            rangeCount: suggested.rangeCount
-        )
+        do {
+            let state = try await backend.resolveTimelines()
+            let exists = state.timelines.contains(suggested.timelineName)
+            pendingChatAction = PendingChatAction(
+                projectID: projectID,
+                kind: exists ? .openTimeline : .createSelects,
+                title: exists
+                    ? "Open existing \(suggested.timelineName) in Resolve"
+                    : "Create \(suggested.timelineName) in Resolve",
+                query: suggested.query,
+                timelineName: suggested.timelineName,
+                searchMode: suggested.searchMode,
+                profile: nil,
+                rangeCount: suggested.rangeCount
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+            log(error.localizedDescription, error: true)
+        }
     }
 
     func clearSelectedProjectChat() {

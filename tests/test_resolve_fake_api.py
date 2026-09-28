@@ -76,6 +76,7 @@ class FakeProject:
     def __init__(self, media_pool, timeline_rate="30", playback_rate="30"):
         self.media_pool = media_pool
         self.current_timeline = None
+        self.timelines = []
         self.settings = {
             "timelineFrameRate": timeline_rate,
             "timelinePlaybackFrameRate": playback_rate,
@@ -91,10 +92,13 @@ class FakeProject:
         return self.settings.get(name)
 
     def GetTimelineCount(self):
-        return 0
+        return len(self.timelines)
 
     def GetTimelineByIndex(self, index):
-        return None
+        return self.timelines[index - 1]
+
+    def GetCurrentTimeline(self):
+        return self.current_timeline
 
     def SetCurrentTimeline(self, timeline):
         self.current_timeline = timeline
@@ -236,3 +240,29 @@ def test_selects_refuses_unsaved_current_project_before_mutating_resolve():
 
     assert resolve.media_pool.root.children == []
     assert resolve.media_pool.appended == []
+
+
+def test_existing_named_timeline_can_be_listed_and_opened_without_duplication():
+    resolve = FakeResolve()
+    food = FakeTimeline("FOOD SHOTS SELECTS")
+    drinks = FakeTimeline("DRINKS SELECTS")
+    resolve.project.timelines = [food, drinks]
+    resolve.project.current_timeline = drinks
+    adapter = ResolveAdapter()
+    adapter._resolve = resolve
+
+    state = adapter.timeline_state()
+    result = adapter.activate_timeline("FOOD SHOTS SELECTS")
+
+    assert state == {
+        "project": "Quick Test",
+        "timelines": ["FOOD SHOTS SELECTS", "DRINKS SELECTS"],
+        "current_timeline": "DRINKS SELECTS",
+    }
+    assert result == {
+        "project": "Quick Test",
+        "timeline": "FOOD SHOTS SELECTS",
+        "opened": True,
+    }
+    assert resolve.project.current_timeline is food
+    assert len(resolve.project.timelines) == 2

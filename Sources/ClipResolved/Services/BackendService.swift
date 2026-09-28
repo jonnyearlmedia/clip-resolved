@@ -146,6 +146,17 @@ actor BackendService {
         )
     }
 
+    func resolveTimelines() async throws -> ResolveTimelineState {
+        try await decode(ResolveTimelineState.self, arguments: ["resolve-timelines"])
+    }
+
+    func openTimeline(_ name: String) async throws -> OpenTimelineResult {
+        try await decode(
+            OpenTimelineResult.self,
+            arguments: ["open-timeline", "--timeline-name", name]
+        )
+    }
+
     func createSmartSelects(projectRoot: String, profile: String, minScore: Double, pre: Double, post: Double, minimum: Double) async throws -> SmartSelectsResult {
         try await decode(
             SmartSelectsResult.self,

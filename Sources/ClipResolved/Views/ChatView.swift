@@ -82,7 +82,9 @@ struct ChatView: View {
                                 message: message,
                                 preview: { evidence in previewEvidence = evidence },
                                 stageAction: { action in
-                                    store.stageSuggestedChatAction(action, projectID: message.projectID)
+                                    Task {
+                                        await store.stageSuggestedChatAction(action, projectID: message.projectID)
+                                    }
                                 }
                             )
                                 .id(message.id)
@@ -252,7 +254,7 @@ private struct ChatMessageView: View {
                     Button {
                         stageAction(action)
                     } label: {
-                        Label("Create \(action.timelineName) in Resolve", systemImage: "timeline.selection")
+                        Label("Use \(action.timelineName) in Resolve", systemImage: "timeline.selection")
                     }
                     .buttonStyle(.borderedProminent)
                 }
@@ -288,6 +290,9 @@ private struct PendingActionView: View {
             case .createSmartSelects:
                 Text("This creates 00 ALL RAW FOOTAGE STRINGOUT, seven professionally named restaurant category timelines, and one ALL FOOTAGE NOT SELECTED REVIEW timeline. Every item references the original indexed MP4s.")
                     .foregroundStyle(.secondary)
+            case .openTimeline:
+                Text("This timeline already exists in the open Resolve project. Clip Resolved will switch to it without creating a duplicate or changing its contents.")
+                    .foregroundStyle(.secondary)
             case .prepareResolve:
                 Text("This will connect to the open saved Resolve project, import originals, and create the required bins.")
                     .foregroundStyle(.secondary)
@@ -310,6 +315,7 @@ private struct PendingActionView: View {
         switch action.kind {
         case .createSelects: "Create SELECTS in Resolve"
         case .createSmartSelects: "Create Complete Package"
+        case .openTimeline: "Open Existing Timeline"
         case .prepareResolve: "Prepare Resolve Project"
         }
     }

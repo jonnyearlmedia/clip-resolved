@@ -213,6 +213,23 @@ struct SelectsResult: Codable {
     }
 }
 
+struct ResolveTimelineState: Codable {
+    let project: String
+    let timelines: [String]
+    let currentTimeline: String?
+
+    enum CodingKeys: String, CodingKey {
+        case project, timelines
+        case currentTimeline = "current_timeline"
+    }
+}
+
+struct OpenTimelineResult: Codable {
+    let project: String
+    let timeline: String
+    let opened: Bool
+}
+
 struct SmartSelectsCategoryResult: Codable, Hashable, Identifiable {
     let name: String
     let query: String
@@ -392,6 +409,7 @@ struct ClaudeIntent: Codable, Equatable {
 enum PendingChatActionKind: String, Codable {
     case createSelects
     case createSmartSelects
+    case openTimeline
     case prepareResolve
 }
 

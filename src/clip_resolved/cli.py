@@ -152,6 +152,16 @@ def cmd_resolve_scaffold(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_resolve_timelines(args: argparse.Namespace) -> int:
+    _json_dump(ResolveAdapter(_repo_root()).timeline_state())
+    return 0
+
+
+def cmd_open_timeline(args: argparse.Namespace) -> int:
+    _json_dump(ResolveAdapter(_repo_root()).activate_timeline(args.timeline_name))
+    return 0
+
+
 def cmd_search(args: argparse.Namespace) -> int:
     with IndexStore.for_project(args.project_root) as store, SynthCutClipBridge(_repo_root()) as bridge:
         hits = search(
@@ -659,6 +669,19 @@ def build_parser() -> argparse.ArgumentParser:
     scaffold.add_argument("--source", required=True)
     scaffold.add_argument("--timeline-fps", type=float, default=30.0)
     scaffold.set_defaults(func=cmd_resolve_scaffold)
+
+    resolve_timelines = sub.add_parser(
+        "resolve-timelines",
+        help="List timelines in the currently open saved Resolve project",
+    )
+    resolve_timelines.set_defaults(func=cmd_resolve_timelines)
+
+    open_timeline = sub.add_parser(
+        "open-timeline",
+        help="Switch Resolve to an existing timeline by exact name",
+    )
+    open_timeline.add_argument("--timeline-name", required=True)
+    open_timeline.set_defaults(func=cmd_open_timeline)
 
     index = sub.add_parser("index", help="Build/update the persistent visual index")
     index.add_argument("--project-root", required=True)
