@@ -19,10 +19,10 @@ Last audited: 2026-09-29
 | S11 | Phone/downloaded media | AUTOMATED ONLY | source identity test | installed import and project routing run |
 | S12 | Ordinary external drive | AUTOMATED ONLY | drive exclusion tests | repeated live mounts and manual-folder fallback |
 | S13 | Insufficient space | AUTOMATED ONLY | aggregate headroom test | installed UI with readable required/available/shortfall |
-| S14 | Copy interruption/relaunch | NOT TESTED | journal primitives exist | fault injection at copy/verify/register/analyze stages |
+| S14 | Copy interruption/relaunch | AUTOMATED ONLY | journal primitives exist; new disposable-fixture tests prove a stray .crpartial from a simulated crash is discarded and replaced by a correctly verified fresh copy, and re-running offload against already-copied files takes the skippedDuplicate path instead of duplicating | real relaunch mid-copy on the installed app with a real (disposable) card |
 | S15 | Duplicate/collision | PARTIAL | dedupe/collision code exists | explicit integration tests and UI result language |
 | S16 | Cleanup success | AUTOMATED ONLY | manifest-scoped disposable-file test | installed disposable-card run with visible progress |
-| S17 | Cleanup blocked | AUTOMATED ONLY | changed destination blocks deletion | wrong card, changed source, missing destination, read-only cases |
+| S17 | Cleanup blocked | AUTOMATED ONLY | changed destination blocks deletion; new tests prove wrong-source-root is blocked, and a multi-file batch with only one tampered destination blocks the whole batch including the untampered file (real all-or-nothing proof, not just single-file) | missing destination, read-only source cases; installed-app real-card proof |
 | S18 | Camera-only readiness | PARTIAL | embedded audio and Resolve scaffold exist | clean app run without recorder attached |
 | S19 | Narration plus b-roll | APP SMOKE | Andaan has narration and visual package in Resolve | repeat from raw sources without Codex/CLI assistance |
 | S20 | Multiple interview takes | AUTOMATED ONLY | speaker diarization now wired in (vendored VideoHighlighter Resemblyzer pipeline) via `--diarize`/`speakers`/`speaker-selects`; real non-stubbed smoke run confirmed the pipeline executes end to end on this machine; unit tests cover tagging/grouping/failure-degrades-gracefully | real multi-speaker interview footage run, human review of speaker/take accuracy |
