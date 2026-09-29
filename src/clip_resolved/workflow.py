@@ -51,6 +51,124 @@ EVENT_SELECTS_PROFILE: tuple[SelectsCategory, ...] = (
 )
 
 
+GENERAL_CANDIDATE_SELECTS: tuple[SelectsCategory, ...] = (
+    SelectsCategory("VEHICLES SELECTS", "cars vehicles trucks parked or driving"),
+    SelectsCategory("ANIMALS PETS SELECTS", "animals pets dogs cats"),
+    SelectsCategory("CHILDREN KIDS SELECTS", "children kids playing"),
+    SelectsCategory("OUTDOOR NATURE SELECTS", "outdoor nature trees park greenery"),
+    SelectsCategory("TEXT SIGNAGE CLOSE UPS SELECTS", "text sign lettering close up"),
+    SelectsCategory("HANDS DETAIL WORK SELECTS", "hands close up detail work craft"),
+    SelectsCategory("GROUP SHOTS SELECTS", "group of people standing or sitting together"),
+    SelectsCategory("SINGLE PERSON PORTRAIT SELECTS", "single person portrait close up"),
+    SelectsCategory("MUSIC PERFORMANCE SELECTS", "music performance instrument playing on stage"),
+    SelectsCategory("ARTS CRAFTS SELECTS", "handmade art craft product on display"),
+)
+
+
+@dataclass(frozen=True)
+class CategoryEvidence:
+    """Real-footage support for one candidate category, before any decision."""
+
+    category: SelectsCategory
+    distinct_assets: int
+    average_top_score: float
+
+
+def _evaluate_category_evidence(
+    category: SelectsCategory,
+    store: IndexStore,
+    bridge: SynthCutClipBridge,
+    *,
+    min_score: float,
+    search_limit: int,
+    per_asset_limit: int,
+) -> CategoryEvidence:
+    hits = search(
+        category.query,
+        store,
+        bridge,
+        limit=search_limit,
+        per_asset_limit=per_asset_limit,
+        min_score=min_score,
+    )
+    grouped = hits_by_asset(hits)
+    if not grouped:
+        return CategoryEvidence(category, distinct_assets=0, average_top_score=0.0)
+    top_scores = [max(hit.score for hit in asset_hits) for asset_hits in grouped.values()]
+    return CategoryEvidence(
+        category,
+        distinct_assets=len(grouped),
+        average_top_score=sum(top_scores) / len(top_scores),
+    )
+
+
+def propose_categories(
+    store: IndexStore,
+    bridge: SynthCutClipBridge,
+    *,
+    base_profile: tuple[SelectsCategory, ...] | None = None,
+    candidate_pool: tuple[SelectsCategory, ...] | None = None,
+    min_assets: int = 2,
+    min_score: float = 0.22,
+    search_limit: int = 80,
+    per_asset_limit: int = 30,
+) -> tuple[list[SelectsCategory], dict[str, list[str]]]:
+    """Replace blind fixed-profile output with footage-evidence category proposal.
+
+    `base_profile` (typically from `selects_profile(name)`) supplies the
+    priors for this shoot type, but every prior still has to clear a real
+    evidence bar against the project's actual index — a restaurant project
+    with zero sake-bottle hits will not get a SAKE BOTTLES SELECTS timeline.
+    Every fixed profile plus `candidate_pool` (default: GENERAL_CANDIDATE_SELECTS)
+    is also evaluated, so categories the seed profile never anticipated can
+    still surface when the footage actually supports them.
+
+    Returns the accepted categories, most-evidenced first, plus a diagnostic
+    dict naming which seed priors were dropped for lack of evidence and which
+    accepted categories were not part of the seed profile at all.
+    """
+    seeds: dict[str, SelectsCategory] = {}
+    for pool in (
+        base_profile or (),
+        RESTAURANT_SELECTS_PROFILE,
+        COMMUNITY_STORY_SELECTS_PROFILE,
+        EVENT_SELECTS_PROFILE,
+        candidate_pool or GENERAL_CANDIDATE_SELECTS,
+    ):
+        for category in pool:
+            seeds.setdefault(category.query, category)
+
+    prior_queries = {category.query for category in (base_profile or ())}
+
+    evidence = [
+        _evaluate_category_evidence(
+            category,
+            store,
+            bridge,
+            min_score=min_score,
+            search_limit=search_limit,
+            per_asset_limit=per_asset_limit,
+        )
+        for category in seeds.values()
+    ]
+
+    accepted = [item for item in evidence if item.distinct_assets >= max(1, min_assets)]
+    accepted.sort(key=lambda item: (item.distinct_assets, item.average_top_score), reverse=True)
+
+    dropped = [
+        item.category.timeline_name
+        for item in evidence
+        if item.distinct_assets < max(1, min_assets) and item.category.query in prior_queries
+    ]
+    discovered = [
+        item.category.timeline_name
+        for item in accepted
+        if item.category.query not in prior_queries
+    ]
+
+    return [item.category for item in accepted], {"dropped": dropped, "discovered": discovered}
+
+
 def selects_profile(name: str) -> tuple[SelectsCategory, ...]:
     """Return a shoot-aware query recipe without limiting later arbitrary search."""
     normalized = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")

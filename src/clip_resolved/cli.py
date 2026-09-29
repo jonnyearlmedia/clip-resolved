@@ -20,6 +20,7 @@ from .workflow import (
     default_remainder_timeline_name,
     default_timeline_name,
     find_moments,
+    propose_categories,
     selects_profile,
     unselected_moments,
     visual_asset_map,
@@ -519,13 +520,40 @@ def cmd_selects(args: argparse.Namespace) -> int:
 def cmd_smart_selects(args: argparse.Namespace) -> int:
     """Build a shoot-aware category package plus one exact global complement."""
     project_root = Path(args.project_root).expanduser().resolve()
-    categories = selects_profile(args.profile)
+    base_categories = selects_profile(args.profile)
     category_results: list[dict] = []
     all_selected = []
 
     with IndexStore.for_project(project_root) as store, SynthCutClipBridge(_repo_root()) as bridge:
         if store.video_asset_count() == 0:
             raise RuntimeError("No indexed footage. Run clip-resolved index first.")
+
+        evidence_report: dict[str, list[str]] | None = None
+        if args.adaptive:
+            categories, evidence_report = propose_categories(
+                store,
+                bridge,
+                base_profile=base_categories,
+                min_assets=args.min_category_assets,
+                min_score=args.min_score,
+                search_limit=args.limit,
+                per_asset_limit=args.per_asset_limit,
+            )
+            if args.dry_run:
+                _json_dump(
+                    {
+                        "profile": args.profile,
+                        "proposed_categories": [
+                            {"name": c.timeline_name, "query": c.query} for c in categories
+                        ],
+                        "dropped_priors": evidence_report["dropped"],
+                        "discovered_categories": evidence_report["discovered"],
+                    }
+                )
+                return 0
+        else:
+            categories = list(base_categories)
+
         builder = VideoHighlighterAdapter(_repo_root())
         assets = visual_asset_map(store.iter_assets())
         adapter = ResolveAdapter(_repo_root())
@@ -645,6 +673,9 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
                 "indexed_assets": len(assets),
                 "coverage_complete": every_append_succeeded,
                 "snapshot": latest_snapshot,
+                "adaptive": args.adaptive,
+                "dropped_priors": evidence_report["dropped"] if evidence_report else [],
+                "discovered_categories": evidence_report["discovered"] if evidence_report else [],
             }
         )
     return 0
@@ -992,6 +1023,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--remainder-timeline-name",
         default="ALL FOOTAGE NOT SELECTED REVIEW",
         help="Name for the exact complement of the union of every category",
+    )
+    smart_selects.add_argument(
+        "--adaptive",
+        action="store_true",
+        help=(
+            "Gate the --profile category list on real footage evidence instead of "
+            "using it unconditionally, and allow evidence-backed categories from "
+            "other profiles or the general vocabulary to be proposed as well"
+        ),
+    )
+    smart_selects.add_argument(
+        "--min-category-assets",
+        type=int,
+        default=2,
+        help="With --adaptive, minimum distinct clips a category must appear in to be kept/proposed",
+    )
+    smart_selects.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="With --adaptive, print the proposed category package and exit without touching Resolve",
     )
     smart_selects.set_defaults(func=cmd_smart_selects)
 

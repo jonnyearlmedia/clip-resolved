@@ -11,9 +11,11 @@ from clip_resolved.workflow import (
     COMMUNITY_STORY_SELECTS_PROFILE,
     EVENT_SELECTS_PROFILE,
     RESTAURANT_SELECTS_PROFILE,
+    SelectsCategory,
     all_source_moments,
     default_remainder_timeline_name,
     default_timeline_name,
+    propose_categories,
     selects_profile,
     unselected_moments,
     visual_asset_map,
@@ -336,6 +338,90 @@ def test_search_can_filter_weak_hits_without_discarding_raw_index(tmp_path: Path
 
         assert [hit.time for hit in raw] == [1.0, 3.0]
         assert [hit.time for hit in filtered] == [1.0]
+
+
+class FakeQueryAwareBridge:
+    """Unlike FakeTextBridge, gives different queries different embeddings so
+    evidence-gating logic can be proven to actually discriminate categories."""
+
+    def __init__(self, mapping: dict[str, tuple[float, float]], default: tuple[float, float] = (0.0, 0.0)):
+        self.mapping = mapping
+        self.default = default
+
+    def embed_text(self, query: str):
+        return self.mapping.get(query, self.default)
+
+
+def test_propose_categories_gates_seed_profile_on_real_evidence(tmp_path: Path):
+    with IndexStore(tmp_path / "index.sqlite3") as store:
+        first = asset(tmp_path / "DJI_0001.MP4")
+        second = MediaAsset(**{**first.__dict__, "id": "asset-2", "path": tmp_path / "DJI_0002.MP4"})
+        store.upsert_asset(first)
+        store.upsert_asset(second)
+        # Both clips contain frames that visually match "market stalls" but
+        # nothing anywhere in this project matches "sake bottles".
+        store.replace_visual_samples(
+            first.id, [VisualSample(asset_id=first.id, time=1.0, embedding=(1.0, 0.0))]
+        )
+        store.replace_visual_samples(
+            second.id, [VisualSample(asset_id=second.id, time=1.0, embedding=(1.0, 0.0))]
+        )
+
+        base_profile = (
+            SelectsCategory("SAKE BOTTLES SELECTS", "sake bottles"),
+            SelectsCategory("MARKET STALLS SELECTS", "market stalls"),
+        )
+        bridge = FakeQueryAwareBridge(
+            {
+                "sake bottles": (0.0, 1.0),
+                "market stalls": (1.0, 0.0),
+            }
+        )
+
+        accepted, report = propose_categories(
+            store,
+            bridge,
+            base_profile=base_profile,
+            candidate_pool=(),
+            min_assets=2,
+            min_score=0.5,
+        )
+
+    accepted_names = {category.timeline_name for category in accepted}
+    assert "MARKET STALLS SELECTS" in accepted_names
+    assert "SAKE BOTTLES SELECTS" not in accepted_names
+    assert report["dropped"] == ["SAKE BOTTLES SELECTS"]
+
+
+def test_propose_categories_can_discover_categories_outside_the_seed_profile(tmp_path: Path):
+    with IndexStore(tmp_path / "index.sqlite3") as store:
+        first = asset(tmp_path / "DJI_0001.MP4")
+        second = MediaAsset(**{**first.__dict__, "id": "asset-2", "path": tmp_path / "DJI_0002.MP4"})
+        store.upsert_asset(first)
+        store.upsert_asset(second)
+        store.replace_visual_samples(
+            first.id, [VisualSample(asset_id=first.id, time=1.0, embedding=(0.0, 1.0))]
+        )
+        store.replace_visual_samples(
+            second.id, [VisualSample(asset_id=second.id, time=1.0, embedding=(0.0, 1.0))]
+        )
+
+        # Empty seed profile: nothing about "restaurant" is relevant here, but
+        # a general-vocabulary candidate is strongly supported by both clips.
+        bridge = FakeQueryAwareBridge(
+            {"cars vehicles trucks parked or driving": (0.0, 1.0)}
+        )
+
+        accepted, report = propose_categories(
+            store,
+            bridge,
+            base_profile=(),
+            min_assets=2,
+            min_score=0.5,
+        )
+
+    assert "VEHICLES SELECTS" in report["discovered"]
+    assert any(category.timeline_name == "VEHICLES SELECTS" for category in accepted)
 
 
 def test_iter_assets_returns_complete_source_set(tmp_path: Path):
