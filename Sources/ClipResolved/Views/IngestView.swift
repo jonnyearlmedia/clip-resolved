@@ -19,12 +19,15 @@ struct IngestView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: ClipResolvedDesign.sectionSpacing) {
                         header
-                        if !store.cards.isEmpty { detectedMedia }
-                        manualSource
+                        if store.scanPayload == nil {
+                            if !store.cards.isEmpty { detectedMedia }
+                            manualSource
+                        } else {
+                            sourceStrip
+                        }
                         if let payload = store.scanPayload {
                             if !payload.scanIssues.isEmpty { scanIssueNotice(payload) }
-                            shootSummary(payload)
-                            reviewNotice(payload)
+                            planSummary(payload)
                             importSelectionControls
                             shootGrid
                             unassignedRow(payload)
@@ -173,6 +176,38 @@ struct IngestView: View {
         }
     }
 
+    // MARK: Source strip (compact, shown once a scan exists)
+
+    /// Once a source is scanned, the full card list / manual-folder picker would push
+    /// the first shoot card below the fold. Collapse both into one line so review starts
+    /// near the top of the viewport, per EXECUTION_PLAN.md Gate 1.
+    private var sourceStrip: some View {
+        let matchedCard = store.cards.first { $0.mountPath == store.sourcePath }
+        return CRCard(padding: 12) {
+            HStack(spacing: 12) {
+                CardGlyph()
+                    .frame(width: 26, height: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(matchedCard?.volumeName ?? "Source folder")
+                        .font(CRFont.heading(13.5))
+                        .foregroundStyle(cr.text)
+                    Text(store.sourcePath)
+                        .font(CRFont.mono(11.5))
+                        .foregroundStyle(cr.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 12)
+                Button("Rescan") { Task { await store.scanSource() } }
+                    .buttonStyle(CRSecondaryButtonStyle())
+                    .disabled(store.isBusy)
+                Button("Change Source") { store.scanPayload = nil }
+                    .buttonStyle(CRLinkButtonStyle())
+                    .disabled(store.isBusy)
+            }
+        }
+    }
+
     // MARK: Manual source
 
     private var manualSource: some View {
@@ -247,43 +282,60 @@ struct IngestView: View {
         .accessibilityLabel("Source scan blocked by \(payload.scanIssues.count) unreadable files")
     }
 
-    private func shootSummary(_ payload: ScanPayload) -> some View {
-        CRCard {
-            HStack(spacing: 30) {
-                CRMetric(value: "\(payload.videoCount)", label: "videos")
-                CRMetric(value: "\(payload.audioCount)", label: "audio files")
-                CRMetric(
-                    value: ByteCountFormatter.string(fromByteCount: payload.totalBytes, countStyle: .file),
-                    label: "on source"
-                )
-                CRMetric(value: "\(payload.groups.count)", label: "proposed shoots")
-                Spacer()
+    /// Merges the metrics strip and the "review only" explainer into one compact card
+    /// (previously two full-height CRCards) so the first shoot card lands higher in the
+    /// viewport at the real installed-app window size. See EXECUTION_PLAN.md Gate 1.
+    private func planSummary(_ payload: ScanPayload) -> some View {
+        CRCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 30) {
+                        summaryMetrics(payload)
+                        Spacer(minLength: 12)
+                        reviewStatus(payload)
+                    }
+                    VStack(alignment: .leading, spacing: 10) {
+                        summaryMetrics(payload)
+                        reviewStatus(payload)
+                    }
+                }
             }
         }
     }
 
-    private func reviewNotice(_ payload: ScanPayload) -> some View {
-        CRCard(padding: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "eye.fill")
-                    .font(.system(size: 15))
-                    .foregroundStyle(cr.accent)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Review only — nothing copies until you confirm")
-                        .font(CRFont.heading(14.5))
-                        .foregroundStyle(cr.text)
-                    Text("Open one shoot at a time to review its real thumbnails in a bounded strip. Move or split anything that belongs elsewhere; camera WAV sidecars stay attached to their MP4 automatically and remain hidden.")
-                        .font(CRFont.body(13.5))
-                        .foregroundStyle(cr.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("\(assignedVideoCount) / \(payload.videoCount) video takes assigned exactly once")
-                        .font(CRFont.mono(12))
-                        .foregroundStyle(assignedVideoCount == payload.videoCount ? cr.success : cr.danger)
-                }
-                Spacer(minLength: 0)
+    private func summaryMetrics(_ payload: ScanPayload) -> some View {
+        HStack(spacing: 24) {
+            CRMetric(value: "\(payload.videoCount)", label: "videos")
+            CRMetric(value: "\(payload.audioCount)", label: "audio files")
+            CRMetric(
+                value: ByteCountFormatter.string(fromByteCount: payload.totalBytes, countStyle: .file),
+                label: "on source"
+            )
+            CRMetric(value: "\(payload.groups.count)", label: "proposed shoots")
+        }
+    }
+
+    private func reviewStatus(_ payload: ScanPayload) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "eye.fill")
+                .font(CRFont.mono(13))
+                .foregroundStyle(cr.accent)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Review only — nothing copies until you confirm")
+                    .font(CRFont.heading(13))
+                    .foregroundStyle(cr.text)
+                Text("Open a shoot to review, move, or split takes. WAV sidecars follow their MP4 automatically.")
+                    .font(CRFont.body(12))
+                    .foregroundStyle(cr.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("\(assignedVideoCount) / \(payload.videoCount) video takes assigned exactly once")
+                    .font(CRFont.mono(12))
+                    .foregroundStyle(assignedVideoCount == payload.videoCount ? cr.success : cr.danger)
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Review only, nothing copies until you confirm. Open a shoot to review, move, or split takes. WAV sidecars follow their MP4 automatically. \(assignedVideoCount) of \(payload.videoCount) video takes assigned exactly once.")
     }
 
     // MARK: Shoot grid
@@ -662,7 +714,7 @@ struct IngestView: View {
                     }
                     Spacer(minLength: 8)
                     Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(CRFont.mono(12, weight: .semibold))
                         .foregroundStyle(cr.textSecondary)
                 }
                 .padding(.horizontal, 14)

@@ -84,7 +84,7 @@ struct SearchView: View {
             HStack(spacing: 10) {
                 HStack(spacing: 9) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 12))
+                        .font(CRFont.mono(13))
                         .foregroundStyle(cr.textTertiary)
                     TextField(
                         store.searchMode == .visual
@@ -93,7 +93,7 @@ struct SearchView: View {
                         text: $store.query
                     )
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13.5))
+                    .font(.system(size: 17))
                     .foregroundStyle(cr.text)
                     .onSubmit { Task { await store.search() } }
                 }

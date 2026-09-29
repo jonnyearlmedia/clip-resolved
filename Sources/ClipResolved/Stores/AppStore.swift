@@ -1401,7 +1401,7 @@ final class AppStore {
     }
 
     func sendChat(_ rawMessage: String) async {
-        guard let project = selectedProject, !isBusy, !isChatBusy else { return }
+        guard var project = selectedProject, !isBusy, !isChatBusy else { return }
         let message = rawMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { return }
 
@@ -1412,6 +1412,18 @@ final class AppStore {
         defer {
             isChatBusy = false
             progressMessage = "Ready"
+        }
+
+        // Chat previously reused whatever indexed-clip/visual-sample counts were last
+        // cached in memory, which could be stale by the time the user asked a question
+        // (see docs/AUDIT_2026-09-29.md, "Chat demonstrated stale operational facts").
+        // Refresh from deterministic backend state right before building the prompt so
+        // Claude always answers from the current count, never a cached snapshot.
+        if let freshStatus = try? await backend.status(projectRoot: project.rootPath) {
+            project.indexedAssets = freshStatus.assets
+            project.visualSamples = freshStatus.visualSamples
+            project.transcripts = freshStatus.transcripts
+            upsertProject(project)
         }
 
         do {
