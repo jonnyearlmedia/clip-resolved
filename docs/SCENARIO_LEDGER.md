@@ -12,7 +12,7 @@ Last audited: 2026-09-29
 | S04 | Partial import under limited capacity | AUTOMATED ONLY | routing/capacity tests; real destination has less free space than full source | real selected-only ingest and source readback |
 | S05 | Regrouping and undo | APP SMOKE | move/split/merge/sidecar tests plus installed-app split 7→8 and Undo 8→7 on the real card | installed multi-move/merge/redo/reset matrix at all target sizes |
 | S06 | Later camera card | NOT TESTED | partial incremental project support exists | app flow, staleness, package update, Resolve readback |
-| S07 | Recorder after camera | AUTOMATED ONLY | recorder match/transcription tests | real DJI Mic device run through installed app |
+| S07 | Recorder after camera | AUTOMATED ONLY | recorder match/transcription tests; new fake-Resolve-API test proves camera-first-then-recorder scaffold reuses the same project, does not re-import the camera clip, and adds the recorder into its own bin | real DJI Mic device run through installed app |
 | S08 | Recorder before camera | NOT TESTED | project-first model exists | pending-source and later-match app flow |
 | S09 | Ambiguous/unmatched recorder | AUTOMATED ONLY | rejection test | installed evidence/review UI and persistence |
 | S10 | Multiple recorders/cameras | NOT TESTED | Resolve API exposes sync/multicam paths | real multi-device samples and false-match testing |
@@ -25,12 +25,12 @@ Last audited: 2026-09-29
 | S17 | Cleanup blocked | AUTOMATED ONLY | changed destination blocks deletion | wrong card, changed source, missing destination, read-only cases |
 | S18 | Camera-only readiness | PARTIAL | embedded audio and Resolve scaffold exist | clean app run without recorder attached |
 | S19 | Narration plus b-roll | APP SMOKE | Andaan has narration and visual package in Resolve | repeat from raw sources without Codex/CLI assistance |
-| S20 | Multiple interview takes | NOT TESTED | timed transcript search exists | take-boundary/speaker evaluation on real interview footage |
+| S20 | Multiple interview takes | AUTOMATED ONLY | speaker diarization now wired in (vendored VideoHighlighter Resemblyzer pipeline) via `--diarize`/`speakers`/`speaker-selects`; real non-stubbed smoke run confirmed the pipeline executes end to end on this machine; unit tests cover tagging/grouping/failure-degrades-gracefully | real multi-speaker interview footage run, human review of speaker/take accuracy |
 | S21 | Event/family chronology | AUTOMATED ONLY | event chronology and profile tests | real family/event package audit |
 | S22 | Evidence-adaptive package | PARTIAL | `propose_categories()` built (workflow.py), gates fixed-profile + general-vocabulary candidates on real multi-asset evidence instead of asserting them blindly; unit-tested with fake embeddings; real dry-run against the live OSAKA index at a stricter threshold correctly dropped FOOD/DRINKS and kept SAKE BOTTLES/JAPANESE FOOD for a real Japanese-market shoot — one real project, not the required set | four-project real benchmark (restaurant, gallery/community story, interview, event/family), human review of proposed vs. correct categories, default-threshold tuning from that data (still opt-in via --adaptive, not the default path) |
 | S23 | New post-index query | REAL PASS (subsystem) | OSAKA arbitrary query and Resolve source-range proof; re-ran a fresh unplanned query ("people walking through a market") against the real OSAKA index after today's fixes, still returns real timestamped source hits | preserve as regression; not full product proof |
 | S24 | Two searches in one session | NOT TESTED | saved query structures exist | UI association and exact Resolve action test |
-| S25 | Later-source package update | NOT TESTED | readiness can become stale | idempotent package/Resolve update implementation and run |
+| S25 | Later-source package update | AUTOMATED ONLY | `ResolveApplicationService` exists; new fake-Resolve-API test proves re-scaffolding after a later source registers reuses the same project object and does not duplicate the earlier camera import | live Resolve 21.1 run: create, add later source, relaunch, confirm no duplicates for real |
 | S26 | Resolve unavailable/wrong | AUTOMATED ONLY | rate/unsaved/interrupted-empty-timeline tests | installed UI recovery for every failure path |
 | S27 | Relaunch persistence | PARTIAL | project/chat/cleanup recovery code exists | full state/recovery app run |
 | S28 | Duplicate filename identity | PARTIAL | paths/source labels available in models | search-card visual verification with duplicate names |
