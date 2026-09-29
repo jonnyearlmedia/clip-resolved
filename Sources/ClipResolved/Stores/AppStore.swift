@@ -2066,7 +2066,7 @@ final class AppStore {
 
     func createSmartSelects(profile: String? = nil) async {
         guard let project = selectedProject else { return }
-        await perform("Building professional SELECTS package") {
+        await perform("Building professional SELECTS package — Claude is reviewing your actual footage, this can take a few minutes") {
             _ = try await ensureResolveProjectReady(project)
             let result = try await backend.createSmartSelects(
                 projectRoot: project.rootPath,

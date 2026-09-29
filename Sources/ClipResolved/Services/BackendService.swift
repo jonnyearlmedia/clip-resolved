@@ -209,18 +209,31 @@ actor BackendService {
         )
     }
 
-    func createSmartSelects(projectRoot: String, profile: String, minScore: Double, pre: Double, post: Double, minimum: Double) async throws -> SmartSelectsResult {
-        try await decode(
-            SmartSelectsResult.self,
-            arguments: [
-                "smart-selects", "--project-root", projectRoot,
-                "--profile", profile,
-                "--min-score", String(minScore),
-                "--pre-handle", String(pre),
-                "--post-handle", String(post),
-                "--minimum-duration", String(minimum),
-            ]
-        )
+    func createSmartSelects(
+        projectRoot: String,
+        profile: String?,
+        minScore: Double,
+        pre: Double,
+        post: Double,
+        minimum: Double,
+        discover: Bool = true,
+        adaptive: Bool = true,
+        visionVerify: Bool = true
+    ) async throws -> SmartSelectsResult {
+        var arguments = ["smart-selects", "--project-root", projectRoot]
+        if let profile {
+            arguments += ["--profile", profile]
+        }
+        arguments += [
+            "--min-score", String(minScore),
+            "--pre-handle", String(pre),
+            "--post-handle", String(post),
+            "--minimum-duration", String(minimum),
+        ]
+        if discover { arguments.append("--discover") }
+        if adaptive { arguments.append("--adaptive") }
+        if visionVerify { arguments.append("--vision-verify") }
+        return try await decode(SmartSelectsResult.self, arguments: arguments)
     }
 
     func createTranscriptSelects(projectRoot: String, query: String, name: String, pre: Double, post: Double, minimum: Double) async throws -> SelectsResult {
