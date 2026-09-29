@@ -1,5 +1,7 @@
 # Resolve Project Flow
 
+> System priority: Resolve behavior is governed by `DEFINITION_OF_DONE.md`. Creation, later-source updates, retries, relaunches, and rebuilds must remain incremental and duplicate-free before the product can be called complete.
+
 ## Verified Resolve project model
 
 DaVinci Resolve does **not** treat a `.drp` like a live Premiere-style project file.

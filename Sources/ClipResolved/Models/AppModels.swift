@@ -142,6 +142,20 @@ struct ScannedGroupPayload: Codable {
     }
 }
 
+struct ScanIssue: Codable, Hashable, Identifiable {
+    let path: String
+    let relativePath: String
+    let kind: String
+    let reason: String
+
+    var id: String { path }
+
+    enum CodingKeys: String, CodingKey {
+        case path, kind, reason
+        case relativePath = "relative_path"
+    }
+}
+
 struct ScanPayload: Codable {
     let source: String
     let videoCount: Int
@@ -150,6 +164,7 @@ struct ScanPayload: Codable {
     let totalBytes: Int64
     let groups: [ScannedGroupPayload]
     let unassignedSidecars: [ScannedFile]
+    let scanIssues: [ScanIssue]
 
     enum CodingKeys: String, CodingKey {
         case source, groups
@@ -158,6 +173,19 @@ struct ScanPayload: Codable {
         case sidecarCount = "sidecar_count"
         case totalBytes = "total_bytes"
         case unassignedSidecars = "unassigned_sidecars"
+        case scanIssues = "scan_issues"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        source = try container.decode(String.self, forKey: .source)
+        videoCount = try container.decode(Int.self, forKey: .videoCount)
+        audioCount = try container.decode(Int.self, forKey: .audioCount)
+        sidecarCount = try container.decode(Int.self, forKey: .sidecarCount)
+        totalBytes = try container.decode(Int64.self, forKey: .totalBytes)
+        groups = try container.decode([ScannedGroupPayload].self, forKey: .groups)
+        unassignedSidecars = try container.decode([ScannedFile].self, forKey: .unassignedSidecars)
+        scanIssues = try container.decodeIfPresent([ScanIssue].self, forKey: .scanIssues) ?? []
     }
 }
 
@@ -176,6 +204,37 @@ struct ShootGroup: Identifiable, Hashable {
     var totalBytes: Int64 { files.reduce(0) { $0 + $1.size } }
 }
 
+struct RecorderProjectMatch: Hashable {
+    let projectID: UUID
+    let projectName: String
+    let recorderTakeCount: Int
+    let cameraTakeCount: Int
+    let startDeltaSeconds: Int
+    let endDeltaSeconds: Int
+    let isExact: Bool
+
+    var explanation: String {
+        if isExact {
+            return "\(recorderTakeCount) recorder files match \(cameraTakeCount) camera clips; recording starts differ by \(startDeltaSeconds)s and end times by \(endDeltaSeconds)s."
+        }
+        return "Recording times overlap this project’s camera footage. Review before importing."
+    }
+}
+
+struct VisualPreparationRecord: Codable, Hashable {
+    enum Kind: String, Codable {
+        case reviewedQuery
+        case fullPackage
+    }
+
+    let kind: Kind
+    let mainTimelines: [String]
+    let reviewTimeline: String?
+    let indexedAssets: Int
+    let coverageComplete: Bool
+    let createdAt: Date
+}
+
 struct ProjectRecord: Codable, Identifiable, Hashable {
     let id: UUID
     var name: String
@@ -186,6 +245,21 @@ struct ProjectRecord: Codable, Identifiable, Hashable {
     var sources: [ProjectSourceRecord]
     var createdAt: Date
     var indexedAssets: Int
+    var visualPreparation: VisualPreparationRecord?
+
+    /// Resolve project databases reject filesystem-style punctuation such as
+    /// colons even though those characters are valid in Clip Resolved names.
+    /// Keep the editor-facing project name intact and use one deterministic,
+    /// readable alias only at the Resolve boundary.
+    var resolveProjectName: String {
+        let forbidden = CharacterSet(charactersIn: "/\\:*?\"<>|")
+        let pieces = name.components(separatedBy: forbidden)
+        let cleaned = pieces
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " - ")
+        return cleaned.isEmpty ? "Clip Resolved Project" : cleaned
+    }
     var visualSamples: Int
     var transcripts: Int?
 
@@ -200,7 +274,8 @@ struct ProjectRecord: Codable, Identifiable, Hashable {
         createdAt: Date = Date(),
         indexedAssets: Int = 0,
         visualSamples: Int = 0,
-        transcripts: Int? = nil
+        transcripts: Int? = nil,
+        visualPreparation: VisualPreparationRecord? = nil
     ) {
         self.id = id
         self.name = name
@@ -220,11 +295,12 @@ struct ProjectRecord: Codable, Identifiable, Hashable {
         self.indexedAssets = indexedAssets
         self.visualSamples = visualSamples
         self.transcripts = transcripts
+        self.visualPreparation = visualPreparation
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, rootPath, sourcePath, kind, profile, sources, createdAt
-        case indexedAssets, visualSamples, transcripts
+        case indexedAssets, visualSamples, transcripts, visualPreparation
     }
 
     init(from decoder: Decoder) throws {
@@ -247,6 +323,7 @@ struct ProjectRecord: Codable, Identifiable, Hashable {
         indexedAssets = try values.decodeIfPresent(Int.self, forKey: .indexedAssets) ?? 0
         visualSamples = try values.decodeIfPresent(Int.self, forKey: .visualSamples) ?? 0
         transcripts = try values.decodeIfPresent(Int.self, forKey: .transcripts)
+        visualPreparation = try values.decodeIfPresent(VisualPreparationRecord.self, forKey: .visualPreparation)
     }
 
     static func inferSourceLabel(_ path: String, kind: ProjectSourceKind = .camera) -> String {
@@ -305,6 +382,38 @@ struct ProjectStatus: Codable {
         case projectRoot = "project_root"
         case visualSamples = "visual_samples"
         case indexPath = "index_path"
+    }
+}
+
+struct TranscriptCueContext: Codable, Hashable {
+    let start: Double
+    let end: Double
+    let text: String
+}
+
+struct TranscriptFileContext: Codable, Hashable {
+    let sourcePath: String
+    let duration: Double
+    let cues: [TranscriptCueContext]
+
+    var fileName: String { URL(fileURLWithPath: sourcePath).lastPathComponent }
+
+    enum CodingKeys: String, CodingKey {
+        case duration, cues
+        case sourcePath = "source_path"
+    }
+}
+
+struct TranscriptContext: Codable, Hashable {
+    let files: [TranscriptFileContext]
+    let cueCount: Int
+    let transcriptFileCount: Int
+    let truncated: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case files, truncated
+        case cueCount = "cue_count"
+        case transcriptFileCount = "transcript_file_count"
     }
 }
 
@@ -372,7 +481,7 @@ struct SelectsResult: Codable {
     let timeline: String
     let rangesRequested: Int
     let rangesAppended: Int
-    let query: String
+    let query: String?
     let moments: Int
     let remainderTimeline: String?
     let remainderRangesRequested: Int?
@@ -398,6 +507,24 @@ struct ResolveTimelineState: Codable {
     enum CodingKeys: String, CodingKey {
         case project, timelines
         case currentTimeline = "current_timeline"
+    }
+}
+
+struct IndexRelocationResult: Codable {
+    let transferred: Int
+    let missingFromIndex: [String]
+    let sourceAssets: Int
+    let sourceVisualSamples: Int
+    let destinationAssets: Int
+    let destinationVisualSamples: Int
+
+    enum CodingKeys: String, CodingKey {
+        case transferred
+        case missingFromIndex = "missing_from_index"
+        case sourceAssets = "source_assets"
+        case sourceVisualSamples = "source_visual_samples"
+        case destinationAssets = "destination_assets"
+        case destinationVisualSamples = "destination_visual_samples"
     }
 }
 
@@ -430,6 +557,9 @@ struct SmartSelectsResult: Codable {
     let categories: [SmartSelectsCategoryResult]
     let categoryTimelinesCreated: Int
     let selectedRanges: Int
+    let allBrollTimeline: String?
+    let allBrollRangesRequested: Int?
+    let allBrollRangesAppended: Int?
     let stringoutTimeline: String
     let stringoutRangesRequested: Int
     let stringoutRangesAppended: Int
@@ -443,6 +573,9 @@ struct SmartSelectsResult: Codable {
         case project, profile, categories
         case categoryTimelinesCreated = "category_timelines_created"
         case selectedRanges = "selected_ranges"
+        case allBrollTimeline = "all_broll_timeline"
+        case allBrollRangesRequested = "all_broll_ranges_requested"
+        case allBrollRangesAppended = "all_broll_ranges_appended"
         case stringoutTimeline = "stringout_timeline"
         case stringoutRangesRequested = "stringout_ranges_requested"
         case stringoutRangesAppended = "stringout_ranges_appended"
@@ -550,11 +683,25 @@ struct ClaudeMemoryUpdate: Codable, Equatable {
     let content: String
 }
 
+struct ClaudeSourceRange: Codable, Equatable {
+    let sourcePath: String
+    let start: Double
+    let end: Double
+    let transcript: String?
+
+    enum CodingKeys: String, CodingKey {
+        case start, end, transcript
+        case sourcePath = "source_path"
+    }
+}
+
 enum ClaudeAction: String, Codable {
     case answer
+    case transcribeAudio = "transcribe_audio"
     case searchVisual = "search_visual"
     case searchTranscript = "search_transcript"
     case proposeSelects = "propose_selects"
+    case proposeExactRanges = "propose_exact_ranges"
     case proposeSmartSelects = "propose_smart_selects"
     case prepareResolve = "prepare_resolve"
 }
@@ -570,6 +717,7 @@ struct ClaudeIntent: Codable, Equatable {
     let preHandleSeconds: Double?
     let postHandleSeconds: Double?
     let minimumDurationSeconds: Double?
+    let ranges: [ClaudeSourceRange]?
 
     enum CodingKeys: String, CodingKey {
         case message, action, query
@@ -580,11 +728,14 @@ struct ClaudeIntent: Codable, Equatable {
         case preHandleSeconds = "pre_handle_seconds"
         case postHandleSeconds = "post_handle_seconds"
         case minimumDurationSeconds = "minimum_duration_seconds"
+        case ranges
     }
 }
 
 enum PendingChatActionKind: String, Codable {
+    case transcribeAudio
     case createSelects
+    case createExactRanges
     case createSmartSelects
     case openTimeline
     case prepareResolve
@@ -600,6 +751,7 @@ struct PendingChatAction: Identifiable, Hashable {
     let searchMode: SearchMode?
     let profile: String?
     let rangeCount: Int
+    var exactRanges: [ChatEvidence] = []
 }
 
 extension TimeInterval {

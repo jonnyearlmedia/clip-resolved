@@ -4,6 +4,8 @@ Read `AGENTS.md` first. It is the primary coding-agent contract for this reposit
 
 Then read the project documents in the order listed there before material implementation work.
 
+`docs/PRODUCT_LAW.md` is the governing behavioral contract. `docs/DEFINITION_OF_DONE.md` is the concise completion gate, `docs/SCENARIO_LEDGER.md` is the evidence truth, and `docs/EXECUTION_PLAN.md` is the required work order. Preserve the complete end goal across context compression and later requests. Do not reduce work to the latest symptom or claim product readiness from a successful subsystem.
+
 ## Critical Claude Code rules
 
 - Do not make Jonny re-explain product decisions already documented in the repo.
@@ -16,10 +18,12 @@ Then read the project documents in the order listed there before material implem
 - Keep Resolve SELECTS as source ranges into originals, not newly rendered MP4s.
 - Treat the Wideframe-like persistent footage intelligence layer as the core product, not merely automatic initial bins.
 
-## First implementation objective
+## Historical first implementation objective
 
-Before polishing the full app, prove the vertical slice described in `docs/IMPLEMENTATION_HANDOFF.md`:
+The vertical slice below has been proven and remains a mandatory regression test; it is no longer the project-level priority:
 
 `real Osmo media → persistent multimodal index → semantic query → exact source ranges → handled ranges → Resolve SELECTS timeline`
 
 A successful implementation must also support a query that was not predefined during ingest (for example, `all the luxury cars`) without rebuilding the entire corpus.
+
+The current objective is the full installed-app system in `docs/PRODUCT_LAW.md`: mixed and later devices, partial ingest, project matching, durable footage-adaptive intelligence, automatic complete SELECTS, idempotent Resolve updates, recovery, safe cleanup, and real-size UI proof without developer or Codex babysitting. Work the earliest unmet execution gate and update scenario evidence honestly.

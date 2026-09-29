@@ -1,5 +1,7 @@
 # Useful Moment Extraction
 
+> System priority: useful ranges must feed the complete automatic, footage-appropriate, source-linked workflow in `DEFINITION_OF_DONE.md`; isolated range quality is not product completion.
+
 ## Goal
 
 The core job is not merely scene detection. clip resolved must turn long raw Osmo source files into **useful editorial source ranges** that can be placed non-destructively into Resolve SELECTS timelines with handles.

@@ -59,3 +59,32 @@ def test_source_frame_range_honors_exact_complement_metadata():
     )
 
     assert ResolveAdapter._source_frame_range(moment, asset) == (31, 59)
+
+
+def test_audio_only_range_uses_timeline_timebase():
+    asset = MediaAsset(
+        id="audio",
+        path=Path("/tmp/DJI_0047.WAV"),
+        duration=240.0,
+        fps=0.0,
+        width=0,
+        height=0,
+        has_audio=True,
+        size=1,
+        mtime_ns=1,
+    )
+    moment = Moment(
+        asset_id=asset.id,
+        source_path=asset.path,
+        detected_start=156.72,
+        detected_end=200.44,
+        handled_start=156.72,
+        handled_end=200.44,
+        score=1.0,
+        query="MAGGIE NARRATION SELECTS",
+    )
+
+    start, end = ResolveAdapter._source_frame_range(moment, asset, timeline_fps=30.0)
+
+    assert start == 4701
+    assert end == 6014

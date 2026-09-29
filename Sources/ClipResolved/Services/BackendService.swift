@@ -33,7 +33,13 @@ actor BackendService {
         if let configured = ProcessInfo.processInfo.environment["CLIP_RESOLVED_REPO"] {
             return URL(fileURLWithPath: configured)
         }
-        var candidates = [Bundle.main.bundleURL, URL(fileURLWithPath: FileManager.default.currentDirectoryPath)]
+        let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        var candidates = [
+            applicationSupport.appendingPathComponent("Clip Resolved/Runtime", isDirectory: true),
+            Bundle.main.resourceURL?.appendingPathComponent("Runtime", isDirectory: true),
+            Bundle.main.bundleURL,
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        ].compactMap { $0 }
         while let candidate = candidates.first {
             candidates.removeFirst()
             var current = candidate
@@ -49,16 +55,17 @@ actor BackendService {
     }
 
     func run(_ arguments: [String]) async throws -> CommandResult {
-        let executable = repositoryRoot.appendingPathComponent(".venv/bin/clip-resolved")
-        guard FileManager.default.isExecutableFile(atPath: executable.path) else {
-            throw BackendError.executableMissing(executable.path)
+        let python = repositoryRoot.appendingPathComponent(".venv/bin/python")
+        guard FileManager.default.isExecutableFile(atPath: python.path) else {
+            throw BackendError.executableMissing(python.path)
         }
         let process = Process()
-        process.executableURL = executable
-        process.arguments = arguments
+        process.executableURL = python
+        process.arguments = ["-m", "clip_resolved.cli"] + arguments
         process.currentDirectoryURL = repositoryRoot
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["PYTHONPATH"] = repositoryRoot.appendingPathComponent("src").path
         process.environment = environment
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -119,6 +126,22 @@ actor BackendService {
         ])
     }
 
+    func relocateIndexedAssets(
+        sourceProjectRoot: String,
+        destinationProjectRoot: String,
+        mappingFile: String
+    ) async throws -> IndexRelocationResult {
+        try await decode(
+            IndexRelocationResult.self,
+            arguments: [
+                "relocate-indexed-assets",
+                "--source-project-root", sourceProjectRoot,
+                "--destination-project-root", destinationProjectRoot,
+                "--mapping-file", mappingFile,
+            ]
+        )
+    }
+
     func moments(projectRoot: String, query: String, minScore: Double, pre: Double, post: Double, minimum: Double) async throws -> [MomentResult] {
         return try await decode(
             [MomentResult].self,
@@ -147,6 +170,16 @@ actor BackendService {
                 "--pre-handle", String(pre),
                 "--post-handle", String(post),
                 "--minimum-duration", String(minimum),
+            ]
+        )
+    }
+
+    func transcriptContext(projectRoot: String, maxCharacters: Int = 40_000) async throws -> TranscriptContext {
+        try await decode(
+            TranscriptContext.self,
+            arguments: [
+                "transcript-context", "--project-root", projectRoot,
+                "--max-characters", String(maxCharacters),
             ]
         )
     }
@@ -203,6 +236,32 @@ actor BackendService {
         )
     }
 
+    func createExactRangeSelects(projectRoot: String, ranges: [ChatEvidence], name: String) async throws -> SelectsResult {
+        let payload = [
+            "ranges": ranges.map { range in
+                [
+                    "source_path": range.sourcePath,
+                    "start": range.start,
+                    "end": range.end,
+                    "transcript": range.transcript ?? "",
+                ] as [String: Any]
+            }
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clip-resolved-ranges-\(UUID().uuidString).json")
+        try data.write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+        return try await decode(
+            SelectsResult.self,
+            arguments: [
+                "exact-range-selects", "--project-root", projectRoot,
+                "--ranges-file", url.path,
+                "--timeline-name", name,
+            ]
+        )
+    }
+
     func scaffold(project: ProjectRecord, timelineFPS: Double) async throws -> ResolveScaffoldResult {
         guard let primaryCamera = project.sources.first(where: { $0.kind == .camera }) else {
             throw BackendError.invalidOutput("Add at least one camera source before preparing Resolve.")
@@ -214,7 +273,7 @@ actor BackendService {
             arguments: [
                 "resolve-scaffold",
                 "--project-root", project.rootPath,
-                "--project-name", project.name,
+                "--project-name", project.resolveProjectName,
                 "--source", source,
                 "--source-label", sourceLabel,
                 "--timeline-fps", String(timelineFPS),

@@ -4,6 +4,7 @@ import importlib
 import json
 import subprocess
 import sys
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,6 +29,44 @@ class ScannedMedia:
     width: int
     height: int
     has_audio: bool
+
+
+class MediaProbeError(RuntimeError):
+    """A source media file stayed unreadable after bounded probe retries."""
+
+
+def _ffprobe_payload(path: Path, *, attempts: int = 2) -> dict[str, Any]:
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_streams",
+        "-show_format",
+        "-of",
+        "json",
+        str(path),
+    ]
+    last_error = "ffprobe returned no details"
+    for attempt in range(max(1, attempts)):
+        try:
+            proc = subprocess.run(command, check=False, capture_output=True, text=True)
+            if proc.returncode != 0:
+                last_error = (proc.stderr or "ffprobe could not read the file").strip()
+            else:
+                payload = json.loads(proc.stdout)
+                if isinstance(payload, dict):
+                    return payload
+                last_error = "ffprobe returned an invalid response"
+        except (OSError, json.JSONDecodeError) as exc:
+            last_error = str(exc)
+        if attempt + 1 < attempts:
+            # External media can briefly stall while a volume settles. One short
+            # retry handles that case without hiding a persistently damaged file.
+            time.sleep(0.15)
+    detail = " ".join(last_error.split())[:500]
+    raise MediaProbeError(
+        f"ffprobe could not read this file after {max(1, attempts)} attempts: {detail}"
+    )
 
 
 def _formats_module(repo_root: Path):
@@ -67,22 +106,7 @@ def _number(value: Any) -> float:
 
 
 def _probe_video(path: Path, stat) -> tuple[datetime, float, float, int, int, bool]:
-    proc = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_streams",
-            "-show_format",
-            "-of",
-            "json",
-            str(path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    payload = json.loads(proc.stdout)
+    payload = _ffprobe_payload(path)
     streams = payload.get("streams", [])
     video = next((stream for stream in streams if stream.get("codec_type") == "video"), {})
     audio = any(stream.get("codec_type") == "audio" for stream in streams)
@@ -105,22 +129,7 @@ def _probe_video(path: Path, stat) -> tuple[datetime, float, float, int, int, bo
 
 
 def _probe_audio(path: Path, stat) -> tuple[datetime, float]:
-    proc = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_streams",
-            "-show_format",
-            "-of",
-            "json",
-            str(path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    payload = json.loads(proc.stdout)
+    payload = _ffprobe_payload(path)
     audio = next(
         (stream for stream in payload.get("streams", []) if stream.get("codec_type") == "audio"),
         {},
@@ -158,6 +167,11 @@ def scan_source(source: str | Path, repo_root: Path, *, gap_hours: float = 3.0) 
         raise ValueError(f"source is not a folder: {root}")
     formats = _formats_module(repo_root)
     media: list[ScannedMedia] = []
+    scan_issues: list[dict[str, Any]] = []
+    discovered_video_count = 0
+    discovered_audio_count = 0
+    discovered_sidecar_count = 0
+    discovered_total_bytes = 0
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.is_symlink() or formats.is_ignored(path):
             continue
@@ -165,25 +179,54 @@ def scan_source(source: str | Path, repo_root: Path, *, gap_hours: float = 3.0) 
         if suffix not in VIDEO_SUFFIXES | AUDIO_SUFFIXES | SIDECAR_SUFFIXES:
             continue
         stat = path.stat()
-        if stat.st_size <= 0:
-            continue
         relative = str(path.relative_to(root))
-        group_key = formats.sidecar_group_key(Path(relative))
+        discovered_total_bytes += max(0, stat.st_size)
         if suffix in VIDEO_SUFFIXES:
-            capture, duration, fps, width, height, has_audio = _probe_video(path, stat)
-            kind = "video"
+            discovered_video_count += 1
+            discovered_kind = "video"
         elif suffix in AUDIO_SUFFIXES:
-            capture, duration = _probe_audio(path, stat)
-            fps = 0.0
-            width = height = 0
-            has_audio = True
-            kind = "audio"
+            discovered_audio_count += 1
+            discovered_kind = "audio"
         else:
-            capture = datetime.fromtimestamp(getattr(stat, "st_birthtime", stat.st_mtime), tz=timezone.utc)
-            duration = fps = 0.0
-            width = height = 0
-            has_audio = False
-            kind = "sidecar"
+            discovered_sidecar_count += 1
+            discovered_kind = "sidecar"
+        if stat.st_size <= 0:
+            scan_issues.append(
+                {
+                    "path": str(path),
+                    "relative_path": relative,
+                    "kind": discovered_kind,
+                    "reason": "The file is empty and cannot be imported safely.",
+                }
+            )
+            continue
+        group_key = formats.sidecar_group_key(Path(relative))
+        try:
+            if suffix in VIDEO_SUFFIXES:
+                capture, duration, fps, width, height, has_audio = _probe_video(path, stat)
+                kind = "video"
+            elif suffix in AUDIO_SUFFIXES:
+                capture, duration = _probe_audio(path, stat)
+                fps = 0.0
+                width = height = 0
+                has_audio = True
+                kind = "audio"
+            else:
+                capture = datetime.fromtimestamp(getattr(stat, "st_birthtime", stat.st_mtime), tz=timezone.utc)
+                duration = fps = 0.0
+                width = height = 0
+                has_audio = False
+                kind = "sidecar"
+        except MediaProbeError as exc:
+            scan_issues.append(
+                {
+                    "path": str(path),
+                    "relative_path": relative,
+                    "kind": discovered_kind,
+                    "reason": str(exc),
+                }
+            )
+            continue
         media.append(
             ScannedMedia(
                 path=str(path),
@@ -256,10 +299,11 @@ def scan_source(source: str | Path, repo_root: Path, *, gap_hours: float = 3.0) 
 
     return {
         "source": str(root),
-        "video_count": len(videos),
-        "audio_count": len(audios),
-        "sidecar_count": sum(item.kind == "sidecar" for item in media),
-        "total_bytes": sum(item.size for item in media),
+        "video_count": discovered_video_count,
+        "audio_count": discovered_audio_count,
+        "sidecar_count": discovered_sidecar_count,
+        "total_bytes": discovered_total_bytes,
         "groups": payload_groups,
         "unassigned_sidecars": [asdict(item) for item in unassigned_sidecars],
+        "scan_issues": scan_issues,
     }

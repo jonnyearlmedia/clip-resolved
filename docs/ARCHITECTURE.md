@@ -1,5 +1,7 @@
 # Architecture
 
+> System priority: architecture choices are subordinate to the autonomous end-to-end outcome and proof gates in `DEFINITION_OF_DONE.md`. Replaceable components must still compose into one recoverable system without hidden operator work.
+
 ## Status
 
 This document describes the current architectural direction during research. Components are intentionally replaceable until benchmarked.

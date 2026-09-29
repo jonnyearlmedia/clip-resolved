@@ -6,6 +6,14 @@
 
 The product should reduce the time between finishing a shoot and reaching a useful, organized editing state in Resolve.
 
+## Product success definition
+
+The authoritative system-level completion contract is `DEFINITION_OF_DONE.md`.
+
+Clip Resolved succeeds only when the installed app can carry a normal project from connected mixed media through safe routing, verified partial/incremental ingest, durable footage understanding, automatic project-appropriate SELECTS, and duplicate-free Resolve preparation without developer or Codex babysitting. Individual working subsystems, a successful CLI vertical slice, or one repaired project do not satisfy the product promise.
+
+The user may connect sources in whatever order real work produces: camera first, recorder first, later camera cards, iPhone/downloaded media, or mixed cards spanning new and existing projects. The durable Clip Resolved project must accumulate those sources and intelligence safely while making uncertainty, required confirmation, stale outputs, failures, and next actions explicit.
+
 ## Primary user flow
 
 The workflow begins when a microSD card containing Osmo footage is inserted into the Mac.

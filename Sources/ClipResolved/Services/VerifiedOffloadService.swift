@@ -7,9 +7,87 @@ struct OffloadResult: Sendable {
     let mediaRoot: URL
     let filesVerified: Int
     let bytesVerified: Int64
+    let cleanupPlan: VerifiedCleanupPlan
+}
+
+struct OffloadCapacityRequest: Sendable {
+    let destinationRoot: URL
+    let bytes: Int64
+}
+
+struct OffloadCapacityStatus: Sendable, Hashable, Identifiable {
+    let volumeID: String
+    let destinationName: String
+    let selectedBytes: Int64
+    let requiredBytes: Int64
+    let availableBytes: Int64
+
+    var id: String { volumeID }
+    var shortfallBytes: Int64 { max(0, requiredBytes - availableBytes) }
+    var hasCapacity: Bool { shortfallBytes == 0 }
+}
+
+/// Durable evidence for an optional, later source cleanup. Copying never uses
+/// this plan to erase anything; it is consumed only after a second explicit
+/// confirmation in the UI.
+struct VerifiedCleanupPlan: Codable, Identifiable, Sendable {
+    let id: UUID
+    let sourceRoot: String
+    let volumeUUID: String
+    let projectRoot: String
+    let manifestRoot: String
+    let session: SessionRecord
+    let destinationByFileID: [String: String]
+
+    var fileCount: Int { session.files.count }
+    var totalBytes: Int64 { session.files.reduce(0) { $0 + $1.size } }
 }
 
 actor VerifiedOffloadService {
+    func validateCapacity(for requests: [OffloadCapacityRequest]) throws {
+        for status in try Self.capacityStatuses(for: requests) {
+            guard status.hasCapacity else {
+                throw CocoaError(.fileWriteOutOfSpace, userInfo: [
+                    NSLocalizedDescriptionKey: "The selected shoots need \(Self.formatted(status.requiredBytes)) including verification headroom, but \(status.destinationName) has \(Self.formatted(status.availableBytes)) available. Deselect at least \(Self.formatted(status.shortfallBytes)) before importing. Nothing was copied."
+                ])
+            }
+        }
+    }
+
+    nonisolated static func capacityStatuses(for requests: [OffloadCapacityRequest]) throws -> [OffloadCapacityStatus] {
+        struct VolumeRequirement {
+            var volumeID: String
+            var destinationName: String
+            var bytes: Int64
+            var available: Int64
+        }
+
+        var requirements: [String: VolumeRequirement] = [:]
+        for request in requests {
+            let attributes = try FileManager.default.attributesOfFileSystem(forPath: request.destinationRoot.path)
+            let volumeID = (attributes[.systemNumber] as? NSNumber)?.stringValue ?? request.destinationRoot.path
+            let available = (attributes[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
+            let volumeName = (try? request.destinationRoot.resourceValues(forKeys: [.volumeNameKey]).volumeName)
+                ?? request.destinationRoot.path
+            var requirement = requirements[volumeID]
+                ?? VolumeRequirement(volumeID: volumeID, destinationName: volumeName, bytes: 0, available: available)
+            requirement.bytes += request.bytes
+            requirement.available = min(requirement.available, available)
+            requirements[volumeID] = requirement
+        }
+
+        return requirements.values.map { requirement in
+            OffloadCapacityStatus(
+                volumeID: requirement.volumeID,
+                destinationName: requirement.destinationName,
+                selectedBytes: requirement.bytes,
+                requiredBytes: Self.requiredCapacity(for: requirement.bytes),
+                availableBytes: requirement.available
+            )
+        }
+        .sorted { $0.destinationName.localizedStandardCompare($1.destinationName) == .orderedAscending }
+    }
+
     func offload(
         group: ShootGroup,
         sourceRoot: URL,
@@ -32,11 +110,12 @@ actor VerifiedOffloadService {
         for folder in [mediaRoot, projectRoot.appendingPathComponent("Assets"), projectRoot.appendingPathComponent("Project"), projectRoot.appendingPathComponent(".clip-resolved/analysis"), manifestRoot] {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
-        let required = group.totalBytes + max(512 * 1024 * 1024, group.totalBytes / 20)
-        let capacity = try projectRoot.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage ?? 0
+        let required = Self.requiredCapacity(for: group.totalBytes)
+        let attributes = try FileManager.default.attributesOfFileSystem(forPath: projectRoot.path)
+        let capacity = (attributes[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
         guard capacity >= required else {
             throw CocoaError(.fileWriteOutOfSpace, userInfo: [
-                NSLocalizedDescriptionKey: "Not enough free space. Need \(ByteCountFormatter.string(fromByteCount: required, countStyle: .file)); only \(ByteCountFormatter.string(fromByteCount: capacity, countStyle: .file)) is available."
+                NSLocalizedDescriptionKey: "Not enough free space. Need \(Self.formatted(required)); only \(Self.formatted(capacity)) is available. Nothing was copied."
             ])
         }
 
@@ -75,6 +154,8 @@ actor VerifiedOffloadService {
         var verified = 0
         var bytes: Int64 = 0
         var manifestItems: [[String: Any]] = []
+        var destinationByFileID: [String: String] = [:]
+        var verifiedSession: SessionRecord?
         do {
             for (index, pair) in zip(group.files, records).enumerated() {
                 let (file, record) = pair
@@ -101,6 +182,7 @@ actor VerifiedOffloadService {
                             "verified": true,
                             "duplicate": true,
                         ])
+                        destinationByFileID[record.id.uuidString] = desired.path
                         continue
                     }
                     destination = uniqueDestination(desired)
@@ -133,10 +215,12 @@ actor VerifiedOffloadService {
                     "sha256": result.sha256Hex,
                     "verified": true,
                 ])
+                destinationByFileID[record.id.uuidString] = destination.path
             }
             await journal.setSessionState(.done, in: session.id)
             await journal.setEnded(in: session.id)
             try await journal.flushNow(session.id)
+            verifiedSession = await journal.session(id: session.id)
             try await journal.complete(session.id)
         } catch {
             await journal.setSessionState(.failed, in: session.id)
@@ -157,7 +241,40 @@ actor VerifiedOffloadService {
         let data = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: manifestRoot.appendingPathComponent("ingest-\(session.id.uuidString).json"), options: .atomic)
         try data.write(to: manifestRoot.appendingPathComponent("ingest-manifest.json"), options: .atomic)
-        return OffloadResult(projectRoot: projectRoot, mediaRoot: mediaRoot, filesVerified: verified, bytesVerified: bytes)
+        guard let verifiedSession else {
+            throw CocoaError(.fileReadCorruptFile, userInfo: [
+                NSLocalizedDescriptionKey: "The verified ingest journal could not be read back. Source cleanup remains disabled."
+            ])
+        }
+        let cleanupPlan = VerifiedCleanupPlan(
+            id: session.id,
+            sourceRoot: sourceRoot.standardizedFileURL.path,
+            volumeUUID: volumeUUID,
+            projectRoot: projectRoot.path,
+            manifestRoot: manifestRoot.path,
+            session: verifiedSession,
+            destinationByFileID: destinationByFileID
+        )
+        let cleanupData = try JSONEncoder().encode(cleanupPlan)
+        try cleanupData.write(
+            to: manifestRoot.appendingPathComponent("cleanup-plan-\(session.id.uuidString).json"),
+            options: .atomic
+        )
+        return OffloadResult(
+            projectRoot: projectRoot,
+            mediaRoot: mediaRoot,
+            filesVerified: verified,
+            bytesVerified: bytes,
+            cleanupPlan: cleanupPlan
+        )
+    }
+
+    nonisolated static func requiredCapacity(for bytes: Int64) -> Int64 {
+        bytes + max(512 * 1024 * 1024, bytes / 20)
+    }
+
+    private nonisolated static func formatted(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
     private func uniqueDestination(_ desired: URL) -> URL {

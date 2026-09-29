@@ -8,11 +8,12 @@ from pathlib import Path
 
 from .resolve import ResolveAdapter, ResolveUnavailable
 from .ingest import scan_source
+from .ranges import merge_overlapping_handled
 from .semantic import index_media, search
 from .sources import load_sources, register_source
 from .store import IndexStore
 from .synthcut import SynthCutClipBridge, SynthCutBridgeError
-from .transcript import index_transcripts, search_transcripts, transcript_moments
+from .transcript import exact_range_moments, index_transcripts, search_transcripts, transcript_context, transcript_moments
 from .videohighlighter import VideoHighlighterAdapter
 from .workflow import (
     all_source_moments,
@@ -21,6 +22,7 @@ from .workflow import (
     find_moments,
     selects_profile,
     unselected_moments,
+    visual_asset_map,
 )
 
 
@@ -152,6 +154,44 @@ def cmd_register_source(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_relocate_indexed_assets(args: argparse.Namespace) -> int:
+    source_project = Path(args.source_project_root).expanduser().resolve()
+    destination_project = Path(args.destination_project_root).expanduser().resolve()
+    if source_project == destination_project:
+        raise ValueError("Source and destination projects must be different")
+    payload = json.loads(Path(args.mapping_file).expanduser().resolve().read_text())
+    moves = payload.get("moves", [])
+    if not isinstance(moves, list) or not moves:
+        raise ValueError("Move manifest contains no media mappings")
+
+    transferred = 0
+    missing_from_index: list[str] = []
+    with IndexStore.for_project(source_project) as source_store, IndexStore.for_project(destination_project) as destination_store:
+        for item in moves:
+            if item.get("is_video") is False:
+                continue
+            source = Path(str(item["source"])).expanduser().resolve()
+            destination = Path(str(item["destination"])).expanduser().resolve()
+            if not destination.is_file():
+                raise ValueError(f"Moved media is missing: {destination}")
+            moved = source_store.transfer_asset_to(destination_store, source, destination)
+            if moved is None:
+                missing_from_index.append(str(source))
+            else:
+                transferred += 1
+        _json_dump(
+            {
+                "transferred": transferred,
+                "missing_from_index": missing_from_index,
+                "source_assets": source_store.asset_count(),
+                "source_visual_samples": source_store.visual_sample_count(),
+                "destination_assets": destination_store.asset_count(),
+                "destination_visual_samples": destination_store.visual_sample_count(),
+            }
+        )
+    return 0
+
+
 def cmd_scan(args: argparse.Namespace) -> int:
     _json_dump(scan_source(args.source, _repo_root(), gap_hours=args.gap_hours))
     return 0
@@ -164,7 +204,9 @@ def cmd_project_status(args: argparse.Namespace) -> int:
             {
                 "project_root": str(root),
                 "exists": root.exists(),
-                "assets": store.asset_count(),
+                # The UI's clip count is camera footage. Audio-only assets may
+                # also live in this index for timed narration transcripts.
+                "assets": store.video_asset_count(),
                 "visual_samples": store.visual_sample_count(),
                 "transcripts": store.transcript_count(),
                 "index_path": str(store.path),
@@ -249,8 +291,6 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
     project_root = Path(args.project_root).expanduser().resolve()
     source = Path(args.source).expanduser().resolve()
     with IndexStore.for_project(project_root) as store, SynthCutClipBridge(_repo_root()) as bridge:
-        if store.asset_count() == 0:
-            raise RuntimeError("No indexed footage. Run clip-resolved index before transcription.")
         updated = index_transcripts(
             source,
             store,
@@ -286,6 +326,12 @@ def cmd_transcript_search(args: argparse.Namespace) -> int:
                 for hit in hits
             ]
         )
+    return 0
+
+
+def cmd_transcript_context(args: argparse.Namespace) -> int:
+    with IndexStore.for_project(args.project_root) as store:
+        _json_dump(transcript_context(store, max_characters=args.max_characters))
     return 0
 
 
@@ -329,6 +375,27 @@ def cmd_transcript_moments(args: argparse.Namespace) -> int:
             minimum_duration=args.minimum_duration,
         )
         _json_dump([_moment_dict(moment) for moment in moments])
+    return 0
+
+
+def cmd_exact_range_selects(args: argparse.Namespace) -> int:
+    project_root = Path(args.project_root).expanduser().resolve()
+    payload = json.loads(Path(args.ranges_file).expanduser().resolve().read_text())
+    ranges = payload.get("ranges", [])
+    with IndexStore.for_project(project_root) as store:
+        moments, assets = exact_range_moments(ranges, store, query=args.timeline_name)
+        result = _create_selects_with_remainder(
+            timeline_name=args.timeline_name,
+            moments=moments,
+            assets=assets,
+            project_root=project_root,
+            query=args.timeline_name,
+            create_remainder=not args.no_remainder,
+            remainder_name=args.remainder_timeline_name,
+        )
+        result["query"] = args.timeline_name
+        result["moments"] = len(moments)
+        _json_dump(result)
     return 0
 
 
@@ -382,7 +449,12 @@ def _create_selects_with_remainder(
     if not create_remainder:
         return result
 
-    remainder = unselected_moments(moments, assets, query=query)
+    remainder = unselected_moments(
+        moments,
+        assets,
+        query=query,
+        audio_fps=result.get("timeline_fps"),
+    )
     if remainder:
         requested_name = remainder_name or default_remainder_timeline_name(timeline_name)
         remainder_result = adapter.create_selects_timeline(
@@ -401,6 +473,9 @@ def _create_selects_with_remainder(
                 "snapshot_exported": bool(remainder_result.get("snapshot_exported")),
             }
         )
+        # Creating the complement makes it current in Resolve. Return the user
+        # to the timeline they explicitly asked for after both timelines exist.
+        adapter.activate_timeline(result["timeline"])
     else:
         result["coverage_complete"] = True
     return result
@@ -449,10 +524,10 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
     all_selected = []
 
     with IndexStore.for_project(project_root) as store, SynthCutClipBridge(_repo_root()) as bridge:
-        if store.asset_count() == 0:
+        if store.video_asset_count() == 0:
             raise RuntimeError("No indexed footage. Run clip-resolved index first.")
         builder = VideoHighlighterAdapter(_repo_root())
-        assets = {asset.id: asset for asset in store.iter_assets()}
+        assets = visual_asset_map(store.iter_assets())
         adapter = ResolveAdapter(_repo_root())
         planned_categories = []
 
@@ -485,7 +560,15 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
             project_root=project_root,
         )
 
-        latest_snapshot = stringout_result.get("snapshot")
+        all_broll = merge_overlapping_handled(all_selected)
+        all_broll_result = adapter.create_selects_timeline(
+            args.all_broll_timeline_name,
+            all_broll,
+            assets,
+            project_root=project_root,
+        )
+
+        latest_snapshot = all_broll_result.get("snapshot") or stringout_result.get("snapshot")
         for category, moments in planned_categories:
             if not moments:
                 category_results.append(
@@ -536,6 +619,7 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
         created = [item for item in category_results if item["timeline"] is not None]
         every_append_succeeded = (
             stringout_result["ranges_requested"] == stringout_result["ranges_appended"]
+            and all_broll_result["ranges_requested"] == all_broll_result["ranges_appended"]
             and all(item["ranges_requested"] == item["ranges_appended"] for item in created)
             and (
                 remainder_result is None
@@ -549,6 +633,9 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
                 "categories": category_results,
                 "category_timelines_created": len(created),
                 "selected_ranges": sum(item["ranges_appended"] for item in created),
+                "all_broll_timeline": all_broll_result["timeline"],
+                "all_broll_ranges_requested": all_broll_result["ranges_requested"],
+                "all_broll_ranges_appended": all_broll_result["ranges_appended"],
                 "stringout_timeline": stringout_result["timeline"],
                 "stringout_ranges_requested": stringout_result["ranges_requested"],
                 "stringout_ranges_appended": stringout_result["ranges_appended"],
@@ -567,7 +654,7 @@ def cmd_raw_stringout(args: argparse.Namespace) -> int:
     """Create one complete source-linked timeline for delivery/review."""
     project_root = Path(args.project_root).expanduser().resolve()
     with IndexStore.for_project(project_root) as store:
-        assets = {asset.id: asset for asset in store.iter_assets()}
+        assets = visual_asset_map(store.iter_assets())
         if not assets:
             raise RuntimeError("No indexed footage. Run clip-resolved index first.")
         result = ResolveAdapter(_repo_root()).create_selects_timeline(
@@ -732,6 +819,15 @@ def build_parser() -> argparse.ArgumentParser:
     register.add_argument("--source-kind", choices=["camera", "audio"], default="camera")
     register.set_defaults(func=cmd_register_source)
 
+    relocate = sub.add_parser(
+        "relocate-indexed-assets",
+        help="Transfer existing visual/transcript index rows after media moves between projects",
+    )
+    relocate.add_argument("--source-project-root", required=True)
+    relocate.add_argument("--destination-project-root", required=True)
+    relocate.add_argument("--mapping-file", required=True)
+    relocate.set_defaults(func=cmd_relocate_indexed_assets)
+
     scaffold = sub.add_parser("resolve-scaffold", help="Create/load a Resolve project and import originals")
     scaffold.add_argument("--project-root", required=True)
     scaffold.add_argument("--project-name", required=True)
@@ -801,6 +897,14 @@ def build_parser() -> argparse.ArgumentParser:
     transcript_search.add_argument("--limit", type=int, default=50)
     transcript_search.set_defaults(func=cmd_transcript_search)
 
+    transcript_context_parser = sub.add_parser(
+        "transcript-context",
+        help="Return a bounded source-identified transcript corpus for project chat",
+    )
+    transcript_context_parser.add_argument("--project-root", required=True)
+    transcript_context_parser.add_argument("--max-characters", type=int, default=40_000)
+    transcript_context_parser.set_defaults(func=cmd_transcript_context)
+
     transcript_selects = sub.add_parser(
         "transcript-selects",
         help="Create a Resolve SELECTS timeline from spoken-word matches",
@@ -831,6 +935,17 @@ def build_parser() -> argparse.ArgumentParser:
     transcript_moment_parser.add_argument("--post-handle", type=float, default=1.5)
     transcript_moment_parser.add_argument("--minimum-duration", type=float, default=4.0)
     transcript_moment_parser.set_defaults(func=cmd_transcript_moments)
+
+    exact_ranges = sub.add_parser(
+        "exact-range-selects",
+        help="Create a source-linked Resolve timeline from validated exact ranges",
+    )
+    exact_ranges.add_argument("--project-root", required=True)
+    exact_ranges.add_argument("--ranges-file", required=True)
+    exact_ranges.add_argument("--timeline-name", required=True)
+    exact_ranges.add_argument("--remainder-timeline-name")
+    exact_ranges.add_argument("--no-remainder", action="store_true")
+    exact_ranges.set_defaults(func=cmd_exact_range_selects)
 
     moments = sub.add_parser("moments", help="Turn a semantic query into handled editorial moments")
     _add_moment_args(moments)
@@ -863,6 +978,11 @@ def build_parser() -> argparse.ArgumentParser:
     smart_selects.add_argument("--pre-handle", type=float, default=2.0)
     smart_selects.add_argument("--post-handle", type=float, default=3.0)
     smart_selects.add_argument("--minimum-duration", type=float, default=6.0)
+    smart_selects.add_argument(
+        "--all-broll-timeline-name",
+        default="ALL B-ROLL SELECTS",
+        help="Name for the merged union of every populated category",
+    )
     smart_selects.add_argument(
         "--stringout-timeline-name",
         default="00 ALL RAW FOOTAGE STRINGOUT",

@@ -1,0 +1,42 @@
+diff --git a/Sources/OffloadEngine/Wiper.swift b/Sources/OffloadEngine/Wiper.swift
+index 8ada28a..ef9901e 100644
+--- a/Sources/OffloadEngine/Wiper.swift
++++ b/Sources/OffloadEngine/Wiper.swift
+@@ -4,19 +4,19 @@ import OffloadCore
+ /// Executes an APPROVED wipe verdict. The countdown and the gate evaluation
+ /// happen in SessionRunner BEFORE this runs; this is just the careful unlink
+ /// loop + empty-dir prune.
+-struct Wiper {
+-    struct Result: Sendable {
+-        var filesDeleted = 0
+-        var stoppedEarly: String?   // first unexpected error — deletion stops there
++public struct Wiper {
++    public struct Result: Sendable {
++        public var filesDeleted = 0
++        public var stoppedEarly: String?   // first unexpected error — deletion stops there
+     }
+ 
+     /// Per-file: claim exclusively, then validate identity and hash before removal.
+     /// ENOENT is tolerated (already gone); any other surprise stops the loop.
+-    static func execute(deletions: [WipeGate.PlannedDeletion],
+-                        journal: Journal,
+-                        sessionID: UUID,
+-                        fileIDs: [UUID: WipeGate.PlannedDeletion],
+-                        onProgress: (@Sendable (Int, Int) -> Void)? = nil) async -> Result {
++    public static func execute(deletions: [WipeGate.PlannedDeletion],
++                               journal: Journal,
++                               sessionID: UUID,
++                               fileIDs: [UUID: WipeGate.PlannedDeletion],
++                               onProgress: (@Sendable (Int, Int) -> Void)? = nil) async -> Result {
+         var result = Result()
+         for (index, deletion) in deletions.enumerated() {
+             do {
+@@ -132,7 +132,7 @@ struct Wiper {
+     /// Deepest-first rmdir(2) of the deletions' parent directories. rmdir
+     /// fails on non-empty — exactly the guard we want (no recursive deletes,
+     /// EVER). Never removes media roots or the mount root.
+-    static func pruneEmptyDirectories(deletions: [WipeGate.PlannedDeletion], cardRoot: String) {
++    public static func pruneEmptyDirectories(deletions: [WipeGate.PlannedDeletion], cardRoot: String) {
+         let root = cardRoot.hasSuffix("/") ? String(cardRoot.dropLast()) : cardRoot
+         let protected: Set<String> = Set(
+             IngestPlanner.mediaRoots.map { root + "/" + $0 } + [root]

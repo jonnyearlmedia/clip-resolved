@@ -4,6 +4,8 @@
 
 Read root `AGENTS.md` before changing implementation.
 
+Then read `DEFINITION_OF_DONE.md`. It is the current highest-priority contract. The working backend and app described below are partial implementation evidence, not permission to call the promised product complete. Continue by closing systemic end-to-end scenarios, not by optimizing one project or narrow vertical slice in isolation.
+
 This repository contains a working Python backend and native SwiftUI macOS app.
 
 ## Reuse rule
@@ -24,7 +26,8 @@ card/folder scan -> confirmed shoot groups -> checksum-verified Media/Osmo copy
   -> persistent SynthCut CLIP index + optional timed Whisper transcript
   -> arbitrary visual or spoken-word query
   -> VideoHighlighter regions + handled editorial ranges
-  -> Resolve AppendToTimeline exact source ranges -> raw stringout + category SELECTS + review complement
+  -> Resolve AppendToTimeline exact source ranges
+  -> raw stringout + merged ALL B-ROLL SELECTS + category SELECTS + review complement
 ```
 
 Detected moments are source ranges. They are not rendered into replacement MP4s.
@@ -223,11 +226,18 @@ The unplanned query matters because Wideframe-style behavior is the actual targe
 - SynthCut's Whisper bridge executed against real embedded Osmo audio; silent clips correctly produce no usable speech cues.
 - Native app builds, launches, and remains running as a normal macOS process.
 
-## Still intentionally gated
+## Known completion blockers
 
-- Card cleanup remains disabled until its exact SD-Offload `WipeGate` execution path is integrated and tested with disposable card media. Normal use never erases the card.
-- External DJI Mic 2 sync needs actual matching camera/WAV samples for waveform-offset validation; embedded Osmo audio works now.
-- Backup-destination, archive, proxy, and in-Resolve panel policies remain open decisions in `DECISIONS.md`; the standalone app is the working editing companion.
+This list is not a substitute for `DEFINITION_OF_DONE.md` and must not be read as exhaustive.
+
+- Automatic project/source matching must be live-proven across ambiguous mixed cards, recorder-first arrival, later camera cards, iPhone/downloaded media, and several existing projects.
+- Automatic footage organization still begins from profile recipes. It must become evidence-adaptive enough that an art-gallery project does not inherit irrelevant food/product assumptions merely because it uses the community-story profile.
+- Package updates after later camera media must be idempotent. Rebuild/retry/relaunch must update or version intended timelines without accidental duplicates.
+- External recorder sync still needs real matching and non-matching camera/WAV samples for waveform-offset, false-match, and recovery validation.
+- Manifest-scoped cleanup exists, but deletion must continue to receive disposable-media and installed-UI failure testing before it is considered universally safe.
+- Search thumbnails, source identity, progress, empty/audio-only readiness, accessibility labels, text size, menu clipping, and all completion/error screens require a final real-window visual audit.
+- The full mixed-device workflow has not yet passed a clean installed-app run without Codex or CLI intervention. Until it does, the product remains incomplete.
+- Backup-destination, archive, proxy, and in-Resolve panel policies remain open decisions in `DECISIONS.md`.
 
 ## Do not do these
 

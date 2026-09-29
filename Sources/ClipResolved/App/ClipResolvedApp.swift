@@ -41,7 +41,7 @@ struct ClipResolvedApp: App {
 
         Settings {
             SettingsView(store: store)
-                .frame(width: 560, height: 300)
+                .frame(width: 640, height: 620)
         }
     }
 }

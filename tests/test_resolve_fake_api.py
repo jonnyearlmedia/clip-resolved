@@ -36,6 +36,12 @@ class FakeTimeline:
     def GetName(self):
         return self.name
 
+    def GetTrackCount(self, media_type):
+        return 1 if media_type in {"video", "audio"} else 0
+
+    def GetItemListInTrack(self, media_type, track):
+        return []
+
 
 class FakeMediaPool:
     def __init__(self):
@@ -202,6 +208,87 @@ def test_selects_scaffolds_exact_bins_and_imports_all_indexed_originals():
     assert resolve.media_pool.appended[0]["endFrame"] == 450
     assert result["timeline"] == "FOOD SHOTS SELECTS"
     assert result["ranges_appended"] == 1
+
+
+def test_selects_appends_audio_only_range_using_project_timebase():
+    resolve = FakeResolve()
+    adapter = ResolveAdapter()
+    adapter._resolve = resolve
+    audio = MediaAsset(
+        id="audio",
+        path=Path("/source/DJI_0047.WAV"),
+        duration=240.0,
+        fps=0.0,
+        width=0,
+        height=0,
+        has_audio=True,
+        size=1,
+        mtime_ns=1,
+    )
+    moment = Moment(
+        asset_id=audio.id,
+        source_path=audio.path,
+        detected_start=156.72,
+        detected_end=200.44,
+        handled_start=156.72,
+        handled_end=200.44,
+        score=1.0,
+        query="MAGGIE NARRATION SELECTS",
+    )
+
+    result = adapter.create_selects_timeline(
+        "MAGGIE NARRATION SELECTS",
+        [moment],
+        {audio.id: audio},
+    )
+
+    assert resolve.media_pool.appended == [
+        {
+            "mediaPoolItem": resolve.media_pool.appended[0]["mediaPoolItem"],
+            "startFrame": 4701,
+            "endFrame": 6014,
+            "mediaType": 2,
+        }
+    ]
+    assert result["timeline_fps"] == 30.0
+
+
+def test_selects_reuses_same_named_empty_timeline_after_interrupted_append():
+    resolve = FakeResolve()
+    existing = FakeTimeline("MAGGIE NARRATION SELECTS")
+    resolve.project.timelines = [existing]
+    adapter = ResolveAdapter()
+    adapter._resolve = resolve
+    audio = MediaAsset(
+        id="audio",
+        path=Path("/source/DJI_0047.WAV"),
+        duration=240.0,
+        fps=0.0,
+        width=0,
+        height=0,
+        has_audio=True,
+        size=1,
+        mtime_ns=1,
+    )
+    moment = Moment(
+        asset_id=audio.id,
+        source_path=audio.path,
+        detected_start=156.72,
+        detected_end=200.44,
+        handled_start=156.72,
+        handled_end=200.44,
+        score=1.0,
+        query="MAGGIE NARRATION SELECTS",
+    )
+
+    result = adapter.create_selects_timeline(
+        "MAGGIE NARRATION SELECTS",
+        [moment],
+        {audio.id: audio},
+    )
+
+    assert result["timeline"] == "MAGGIE NARRATION SELECTS"
+    assert resolve.project.current_timeline is existing
 
 
 def test_selects_refuses_mismatched_project_playback_rate_before_mutating_resolve():

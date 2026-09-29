@@ -1,5 +1,11 @@
 # Realistic Workflow Scenarios
 
+These scenarios are acceptance cases for the complete product, not optional examples. They supplement the mandatory matrix in `DEFINITION_OF_DONE.md`. A fix for one named card or project is incomplete unless its invariant also covers later devices, different arrival order, partial import, restart/retry, and ambiguous project matches.
+
+## Cross-scenario acceptance rule
+
+Every scenario must be completable through the installed app without Codex or developer commands. The app may require explicit confirmation for ingest, Resolve mutation, and deletion, but it must itself detect, propose, explain, execute, persist, verify, and recover the surrounding workflow.
+
 ## Scenario 1: One microSD contains several unrelated days and events
 
 Example card contents:

@@ -1,5 +1,7 @@
 # Same-Day Quick Test
 
+> Historical subsystem test, not the current product priority or definition of done. Passing this test proves only the footage-brain → source-linked Resolve vertical slice. It must never be used to defer, replace, or claim completion of the autonomous multi-device installed-app workflow in `DEFINITION_OF_DONE.md`.
+
 Purpose: test the core Clip Resolved experience on a real no-Mic-2 edit without building the full Mac app.
 
 ## Scope

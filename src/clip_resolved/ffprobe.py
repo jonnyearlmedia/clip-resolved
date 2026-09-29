@@ -22,11 +22,11 @@ def _rate(value: str | None) -> float:
             return 0.0
 
 
-def _asset_id(path: Path) -> str:
+def asset_id_for_path(path: str | Path) -> str:
     # Stable for the current vertical slice while a source remains at one path.
     # Verified ingest hashes can replace this later without coupling callers to
     # size/mtime, which are freshness signals rather than identity.
-    payload = str(path.resolve()).encode("utf-8")
+    payload = str(Path(path).expanduser().resolve()).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()[:24]
 
 
@@ -68,13 +68,13 @@ def probe(path: str | Path) -> MediaAsset:
     streams = payload.get("streams", [])
     videos = [s for s in streams if s.get("codec_type") == "video"]
     audios = [s for s in streams if s.get("codec_type") == "audio"]
-    if not videos:
-        raise ValueError(f"no video stream: {source}")
+    if not videos and not audios:
+        raise ValueError(f"no supported media stream: {source}")
 
-    video = videos[0]
+    primary = videos[0] if videos else audios[0]
     duration = 0.0
     for candidate in (
-        video.get("duration"),
+        primary.get("duration"),
         payload.get("format", {}).get("duration"),
     ):
         if candidate not in (None, "N/A"):
@@ -84,12 +84,13 @@ def probe(path: str | Path) -> MediaAsset:
             except (TypeError, ValueError):
                 pass
 
+    video = videos[0] if videos else {}
     fps = _rate(video.get("avg_frame_rate")) or _rate(video.get("r_frame_rate"))
     width = int(video.get("width") or 0)
     height = int(video.get("height") or 0)
 
     return MediaAsset(
-        id=_asset_id(source),
+        id=asset_id_for_path(source),
         path=source,
         duration=max(0.0, duration),
         fps=max(0.0, fps),

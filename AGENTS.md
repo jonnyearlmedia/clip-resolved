@@ -24,6 +24,14 @@ Core product principle:
 
 > analyze once, understand deeply, query repeatedly.
 
+## Non-negotiable product outcome
+
+`docs/PRODUCT_LAW.md` is the authoritative behavioral contract. `docs/DEFINITION_OF_DONE.md` is its concise completion gate, `docs/SCENARIO_LEDGER.md` records honest evidence, and `docs/EXECUTION_PLAN.md` controls work order.
+
+The end goal is not a collection of working features or a developer-assisted demo. The installed app must own the complete, repeatable workflow across mixed cards, partial imports, existing and new projects, later cameras/phones/recorders, footage understanding, automatic organized SELECTS, incremental duplicate-free Resolve updates, relaunch recovery, and manifest-safe cleanup. Normal use must not require Codex or hidden CLI intervention.
+
+Treat every reported symptom as evidence of a missing system invariant. Fix and test the general invariant and adjacent scenarios, not only the visible instance. Do not claim the product is complete, ready, autonomous, or solved until every proof gate in `docs/PRODUCT_LAW.md` and `docs/DEFINITION_OF_DONE.md` has passed through the installed app on real media and is recorded honestly in the scenario ledger.
+
 ## Mandatory implementation rule
 
 **Do not rebuild working open-source systems from scratch.**
@@ -44,16 +52,22 @@ If you decide to replace an existing OSS implementation, document the concrete r
 
 Read these before material implementation work:
 
-1. `docs/ASSEMBLY_STRATEGY.md`
-2. `docs/PRODUCT_SPEC.md`
-3. `docs/INGEST_FLOW.md`
-4. `docs/RESOLVE_PROJECT_FLOW.md`
-5. `docs/WIDEFRAME_BENCHMARK.md`
-6. `docs/MOMENT_EXTRACTION.md`
-7. `docs/ARCHITECTURE.md`
-8. `docs/SCENARIOS.md`
-9. `docs/DECISIONS.md`
-10. `docs/IMPLEMENTATION_HANDOFF.md`
+1. `docs/PRODUCT_LAW.md`
+2. `docs/DEFINITION_OF_DONE.md`
+3. `docs/SCENARIO_LEDGER.md`
+4. `docs/EXECUTION_PLAN.md`
+5. `docs/ASSEMBLY_STRATEGY.md`
+6. `docs/PRODUCT_SPEC.md`
+7. `docs/INGEST_FLOW.md`
+8. `docs/RESOLVE_PROJECT_FLOW.md`
+9. `docs/WIDEFRAME_BENCHMARK.md`
+10. `docs/MOMENT_EXTRACTION.md`
+11. `docs/ARCHITECTURE.md`
+12. `docs/SCENARIOS.md`
+13. `docs/DECISIONS.md`
+14. `docs/IMPLEMENTATION_HANDOFF.md`
+
+Before editing, name the owning Product Law invariant and scenario IDs. After verification, update the ledger with the exact evidence level. A passing unit test may record `AUTOMATED ONLY`; it may not be promoted to `REAL PASS`.
 
 If documents conflict, prefer the newest, more specific decision document and flag the conflict instead of silently choosing.
 
@@ -169,9 +183,7 @@ Original code should concentrate on:
 
 ## Current implementation priority
 
-Do NOT try to finish the whole polished app first.
-
-Build a real-footage vertical slice as early as practical:
+The narrow real-footage vertical slice below was an early milestone. It proved source-linked semantic SELECTS, but it is no longer the project-level definition of success or the highest priority:
 
 ```text
 real Osmo folder
@@ -189,6 +201,8 @@ Required proof queries should include at least:
 - a transcript-driven query when interview footage is available
 
 Only tune thresholds from misses/false positives on real footage.
+
+The current priority is to close the complete installed-app system in `docs/DEFINITION_OF_DONE.md`. Work should proceed by end-to-end scenario and systemic invariant: autonomous source detection/routing, partial and incremental ingest, evidence-based project matching, durable multimodal understanding, automatic footage-adaptive organization, idempotent Resolve updates, truthful readiness, visible recovery, safe cleanup, and real-size UI verification. Preserve the working vertical slice as a regression test while finishing the product around it.
 
 ## Safety / data rules
 

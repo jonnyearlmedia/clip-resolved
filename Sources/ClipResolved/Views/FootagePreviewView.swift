@@ -3,15 +3,26 @@ import AVKit
 import AppKit
 import SwiftUI
 
-/// SwiftUI owns this sidebar's place in the main layout. Only the native player controller crosses
+/// A large playback surface for judging footage. Only the native player controller crosses
 /// the AppKit boundary, avoiding AVKit's crashing SwiftUI `VideoPlayer` while preserving normal
 /// mouse and responder routing for every control.
+struct FootagePreviewPresentation: View {
+    let evidence: ChatEvidence
+    let onClose: () -> Void
+
+    var body: some View {
+        FootagePreviewSidebarView(evidence: evidence, onClose: onClose)
+            .frame(minWidth: 960, idealWidth: 1_120, minHeight: 700, idealHeight: 780)
+    }
+}
+
 struct FootagePreviewSidebarView: NSViewControllerRepresentable {
+    @Environment(\.cr) private var cr
     let evidence: ChatEvidence
     let onClose: () -> Void
 
     func makeNSViewController(context: Context) -> FootagePreviewSidebarController {
-        let controller = FootagePreviewSidebarController(evidence: evidence, onClose: onClose)
+        let controller = FootagePreviewSidebarController(evidence: evidence, palette: cr, onClose: onClose)
         controller.prepareAndPlay()
         return controller
     }
@@ -26,6 +37,7 @@ struct FootagePreviewSidebarView: NSViewControllerRepresentable {
 @MainActor
 final class FootagePreviewSidebarController: NSViewController {
     let evidence: ChatEvidence
+    let palette: CRPalette
     let player: AVPlayer
     let playerView = AVPlayerView(frame: .zero)
     let selectedDuration: Double
@@ -37,8 +49,9 @@ final class FootagePreviewSidebarController: NSViewController {
     private weak var sourceToggleButton: NSButton?
     private var showingFullSource = false
 
-    init(evidence: ChatEvidence, onClose: @escaping () -> Void = {}) {
+    init(evidence: ChatEvidence, palette: CRPalette = .dark, onClose: @escaping () -> Void = {}) {
         self.evidence = evidence
+        self.palette = palette
         self.onClose = onClose
 
         let start = max(0, evidence.start)
@@ -89,31 +102,32 @@ final class FootagePreviewSidebarController: NSViewController {
     }
 
     private func makeContentView() -> NSView {
-        let root = NSVisualEffectView(frame: .zero)
-        root.material = .sidebar
-        root.blendingMode = .withinWindow
-        root.state = .active
+        let root = NSView(frame: .zero)
+        root.wantsLayer = true
+        root.layer?.backgroundColor = NSColor(palette.card).cgColor
 
         let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close preview")!, target: self, action: #selector(closePressed))
         close.bezelStyle = .circular
         close.isBordered = false
+        close.contentTintColor = NSColor(palette.textSecondary)
 
         let title = NSTextField(labelWithString: evidence.fileName)
-        title.font = .systemFont(ofSize: 17, weight: .semibold)
+        title.font = .systemFont(ofSize: 17, weight: .bold)
+        title.textColor = NSColor(palette.text)
         title.lineBreakMode = .byTruncatingMiddle
 
         let range = NSTextField(
             labelWithString: "SELECTED MOMENT  •  \(selectedDuration.formatted(.number.precision(.fractionLength(1)))) SEC"
         )
-        range.font = .systemFont(ofSize: 11, weight: .semibold)
-        range.textColor = .systemBlue
+        range.font = .monospacedSystemFont(ofSize: 11, weight: .semibold)
+        range.textColor = NSColor(palette.accent)
         modeLabel = range
 
         let sourceRange = NSTextField(
             labelWithString: "Source \(evidence.start.editorTimecode) – \(evidence.end.editorTimecode)"
         )
         sourceRange.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        sourceRange.textColor = .secondaryLabelColor
+        sourceRange.textColor = NSColor(palette.textSecondary)
 
         let headerText = NSStackView(views: [title, range, sourceRange])
         headerText.orientation = .vertical
@@ -132,7 +146,7 @@ final class FootagePreviewSidebarController: NSViewController {
 
         playerView.player = player
         playerView.controlsStyle = .floating
-        playerView.showsFullScreenToggleButton = false
+        playerView.showsFullScreenToggleButton = true
         playerView.translatesAutoresizingMaskIntoConstraints = false
 
         let replay = NSButton(title: "Replay Range", target: self, action: #selector(replayPressed))
@@ -146,20 +160,17 @@ final class FootagePreviewSidebarController: NSViewController {
         let reveal = NSButton(title: "Reveal in Finder", target: self, action: #selector(revealPressed))
         reveal.bezelStyle = .rounded
 
-        let playbackControls = NSStackView(views: [replay, toggleSource])
-        playbackControls.orientation = .horizontal
-        playbackControls.alignment = .centerY
-        playbackControls.spacing = 8
-        let controls = NSStackView(views: [playbackControls, reveal])
-        controls.orientation = .vertical
-        controls.alignment = .leading
+        let controls = NSStackView(views: [replay, toggleSource, reveal])
+        controls.orientation = .horizontal
+        controls.alignment = .centerY
         controls.spacing = 8
 
+        let mediaKind = URL(fileURLWithPath: evidence.sourcePath).pathExtension.lowercased() == "wav" ? "WAV" : "video"
         let note = NSTextField(
-            wrappingLabelWithString: "This player contains only this selected range. It references the original MP4; no preview or SELECTS media file was rendered."
+            wrappingLabelWithString: "This player contains only this selected range. It references the original \(mediaKind) on the source device; no duplicate preview file was rendered."
         )
         note.font = .systemFont(ofSize: 11)
-        note.textColor = .secondaryLabelColor
+        note.textColor = NSColor(palette.textTertiary)
 
         let content = NSStackView(views: [heading, divider, playerView, controls, note])
         content.orientation = .vertical
@@ -248,7 +259,10 @@ final class FootagePreviewSidebarController: NSViewController {
 }
 
 struct EvidenceThumbnailView: View {
+    @Environment(\.cr) private var cr
     let evidence: ChatEvidence
+    var width: CGFloat = 144
+    var height: CGFloat = 81
     @StateObject private var loader = FootageThumbnailLoader()
 
     var body: some View {
@@ -258,18 +272,49 @@ struct EvidenceThumbnailView: View {
                     .resizable()
                     .scaledToFill()
             } else {
-                ZStack {
-                    Rectangle().fill(.quaternary)
-                    ProgressView().controlSize(.small)
-                }
+                CRStripe(cornerRadius: 0)
             }
         }
-        .frame(width: 112, height: 63)
+        .frame(width: width, height: height)
         .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(.separator.opacity(0.5)))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(cr.border))
         .task(id: evidence.id) {
             loader.load(path: evidence.sourcePath, seconds: evidence.start)
         }
+    }
+}
+
+/// A real frame from source media for pre-ingest shoot identification.
+/// This reads the mounted original in place and never creates proxy media.
+struct FootageFrameThumbnailView: View {
+    @Environment(\.cr) private var cr
+    let path: String
+    let seconds: Double
+    var cornerRadius: CGFloat = 5
+    @StateObject private var loader = FootageThumbnailLoader()
+
+    var body: some View {
+        Group {
+            if let image = loader.image {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                CRStripe(cornerRadius: 0)
+                    .overlay {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+            }
+        }
+        .aspectRatio(16.0 / 9.0, contentMode: .fit)
+        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(cr.border))
+        .task(id: "\(path)#\(seconds)") {
+            loader.load(path: path, seconds: seconds)
+        }
+        .accessibilityLabel("Frame from \(URL(fileURLWithPath: path).lastPathComponent)")
     }
 }
 

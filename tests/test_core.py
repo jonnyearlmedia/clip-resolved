@@ -1,8 +1,11 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from clip_resolved.models import MediaAsset, Moment, VisualSample
+from clip_resolved.ffprobe import probe
 from clip_resolved.semantic import sample_times, search
 from clip_resolved.store import IndexStore
+from clip_resolved.transcript import index_transcripts
 from clip_resolved.cli import _timecode
 from clip_resolved.workflow import (
     COMMUNITY_STORY_SELECTS_PROFILE,
@@ -13,7 +16,49 @@ from clip_resolved.workflow import (
     default_timeline_name,
     selects_profile,
     unselected_moments,
+    visual_asset_map,
 )
+
+
+def test_selects_pair_reopens_requested_timeline(monkeypatch, tmp_path):
+    from clip_resolved import cli
+
+    class FakeAdapter:
+        def __init__(self):
+            self.created = []
+            self.activated = []
+
+        def create_selects_timeline(self, name, moments, assets, project_root=None):
+            self.created.append(name)
+            return {
+                "project": "Downtown Shots",
+                "timeline": name,
+                "ranges_requested": len(moments),
+                "ranges_appended": len(moments),
+                "snapshot": None,
+                "snapshot_exported": False,
+            }
+
+        def activate_timeline(self, name):
+            self.activated.append(name)
+            return {"project": "Downtown Shots", "timeline": name, "opened": True}
+
+    adapter = FakeAdapter()
+    monkeypatch.setattr(cli, "ResolveAdapter", lambda _root: adapter)
+    monkeypatch.setattr(cli, "unselected_moments", lambda *args, **kwargs: ["remainder"])
+
+    result = cli._create_selects_with_remainder(
+        timeline_name="DOWNTOWN STREET SELECTS",
+        moments=["selected"],
+        assets={},
+        project_root=tmp_path,
+        query="downtown street",
+        create_remainder=True,
+        remainder_name=None,
+    )
+
+    assert result["remainder_timeline"] == "DOWNTOWN STREET NOT SELECTED"
+    assert adapter.activated == ["DOWNTOWN STREET SELECTS"]
 
 
 def asset(path: Path, *, size: int = 10, mtime_ns: int = 100) -> MediaAsset:
@@ -28,6 +73,57 @@ def asset(path: Path, *, size: int = 10, mtime_ns: int = 100) -> MediaAsset:
         size=size,
         mtime_ns=mtime_ns,
     )
+
+
+def test_audio_transcription_registers_recorder_asset_without_inflating_video_count(monkeypatch, tmp_path):
+    wav = tmp_path / "MAGGIE.WAV"
+    wav.write_bytes(b"audio")
+    audio_asset = MediaAsset(
+        id="audio-1",
+        path=wav,
+        duration=12.0,
+        fps=0.0,
+        width=0,
+        height=0,
+        has_audio=True,
+        size=5,
+        mtime_ns=100,
+    )
+
+    class FakeBridge:
+        def transcribe(self, path, *, language, model):
+            assert path == wav
+            return {"cues": [{"start": 0, "end": 2, "text": "Welcome to Andaan."}], "words": []}
+
+    monkeypatch.setattr("clip_resolved.transcript.discover_audio_files", lambda _root: [wav])
+    monkeypatch.setattr("clip_resolved.transcript.probe", lambda _path: audio_asset)
+
+    with IndexStore(tmp_path / "index.sqlite3") as store:
+        assert index_transcripts(tmp_path, store, FakeBridge()) == 1
+        assert store.asset_count() == 1
+        assert store.video_asset_count() == 0
+        assert store.transcript_count() == 1
+
+
+def test_probe_accepts_audio_only_media(monkeypatch, tmp_path):
+    wav = tmp_path / "MAGGIE.WAV"
+    wav.write_bytes(b"audio")
+    payload = {
+        "streams": [{"codec_type": "audio", "duration": "12.5"}],
+        "format": {"duration": "12.5", "tags": {}},
+    }
+    monkeypatch.setattr(
+        "clip_resolved.ffprobe.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(stdout=__import__("json").dumps(payload)),
+    )
+
+    result = probe(wav)
+
+    assert result.duration == 12.5
+    assert result.has_audio is True
+    assert result.fps == 0
+    assert result.width == 0
+    assert result.height == 0
 
 
 def test_sample_times_avoid_eof():
@@ -106,6 +202,26 @@ def test_all_source_stringout_contains_each_original_once_in_path_order(tmp_path
     assert [moment.source_path.name for moment in moments] == ["DJI_0001.MP4", "DJI_0002.MP4"]
     assert [moment.metadata["source_start_frame"] for moment in moments] == [0, 0]
     assert [moment.metadata["source_end_frame"] for moment in moments] == [300, 1200]
+
+
+def test_visual_asset_set_excludes_recorder_audio_from_broll_remainder(tmp_path: Path):
+    video = asset(tmp_path / "DJI_0001.MP4")
+    narration = MediaAsset(
+        id="audio-1",
+        path=tmp_path / "DJI_47.WAV",
+        duration=210.0,
+        fps=0.0,
+        width=0,
+        height=0,
+        has_audio=True,
+        size=10,
+        mtime_ns=100,
+    )
+
+    result = visual_asset_map([video, narration])
+
+    assert set(result) == {video.id}
+    assert all(item.width > 0 and item.height > 0 for item in result.values())
 
 
 def test_event_stringout_uses_capture_time_across_camera_names(tmp_path: Path):
@@ -230,3 +346,36 @@ def test_iter_assets_returns_complete_source_set(tmp_path: Path):
         store.upsert_asset(first)
 
         assert [item.id for item in store.iter_assets()] == ["asset-1", "asset-2"]
+
+
+def test_transfer_asset_moves_visual_index_and_transcript_without_reembedding(tmp_path: Path):
+    source_path = tmp_path / "source" / "DJI_0001.MP4"
+    destination_path = tmp_path / "destination" / "DJI_0001.MP4"
+    source_path.parent.mkdir()
+    destination_path.parent.mkdir()
+    source_path.write_bytes(b"camera-media")
+    source_path.replace(destination_path)
+
+    original = asset(source_path, size=len(b"camera-media"), mtime_ns=destination_path.stat().st_mtime_ns)
+    source_db = tmp_path / "source.sqlite3"
+    destination_db = tmp_path / "destination.sqlite3"
+    with IndexStore(source_db) as source_store, IndexStore(destination_db) as destination_store:
+        source_store.upsert_asset(original)
+        source_store.replace_visual_samples(
+            original.id,
+            [VisualSample(asset_id=original.id, time=1.5, embedding=(0.1, 0.2))],
+        )
+        source_store.put_transcript(original.id, {"segments": [{"text": "hello"}]})
+
+        moved = source_store.transfer_asset_to(
+            destination_store,
+            source_path,
+            destination_path,
+        )
+
+        assert moved is not None
+        assert moved.path == destination_path.resolve()
+        assert source_store.asset_count() == 0
+        assert destination_store.asset_count() == 1
+        assert destination_store.visual_sample_count() == 1
+        assert destination_store.get_transcript(moved.id)["segments"][0]["text"] == "hello"

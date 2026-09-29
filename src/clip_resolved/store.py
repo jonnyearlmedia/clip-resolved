@@ -188,6 +188,81 @@ class IndexStore:
             return None
         return self._asset_from_row(row)
 
+    def get_asset_by_path(self, path: str | Path) -> MediaAsset | None:
+        normalized = str(Path(path).expanduser().resolve())
+        row = self.conn.execute("SELECT * FROM assets WHERE path = ?", (normalized,)).fetchone()
+        return self._asset_from_row(row) if row is not None else None
+
+    def visual_samples_for_asset(self, asset_id: str) -> list[VisualSample]:
+        rows = self.conn.execute(
+            "SELECT time, embedding_json FROM visual_samples WHERE asset_id = ? ORDER BY time",
+            (asset_id,),
+        )
+        return [
+            VisualSample(
+                asset_id=asset_id,
+                time=float(row["time"]),
+                embedding=tuple(float(value) for value in json.loads(row["embedding_json"])),
+            )
+            for row in rows
+        ]
+
+    def delete_asset(self, asset_id: str) -> None:
+        with self.conn:
+            self.conn.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
+
+    def transfer_asset_to(
+        self,
+        destination_store: "IndexStore",
+        source_path: str | Path,
+        destination_path: str | Path,
+    ) -> MediaAsset | None:
+        """Move one indexed asset between projects without recomputing CLIP data.
+
+        The media file must already exist at destination_path. The destination
+        row and every visual/transcript child are committed before the source
+        row is removed, so an interrupted correction never loses the index.
+        """
+        from .ffprobe import asset_id_for_path
+
+        source = self.get_asset_by_path(source_path)
+        if source is None:
+            return None
+        destination = Path(destination_path).expanduser().resolve()
+        stat = destination.stat()
+        if stat.st_size != source.size:
+            raise ValueError(
+                f"Moved file size changed for {destination.name}: expected {source.size}, got {stat.st_size}"
+            )
+        moved = MediaAsset(
+            id=asset_id_for_path(destination),
+            path=destination,
+            duration=source.duration,
+            fps=source.fps,
+            width=source.width,
+            height=source.height,
+            has_audio=source.has_audio,
+            size=stat.st_size,
+            mtime_ns=stat.st_mtime_ns,
+            capture_time=source.capture_time,
+        )
+        samples = [
+            VisualSample(
+                asset_id=moved.id,
+                time=sample.time,
+                embedding=sample.embedding,
+            )
+            for sample in self.visual_samples_for_asset(source.id)
+        ]
+        transcript = self.get_transcript(source.id)
+        destination_store.upsert_asset(moved)
+        if samples:
+            destination_store.replace_visual_samples(moved.id, samples)
+        if transcript is not None:
+            destination_store.put_transcript(moved.id, transcript)
+        self.delete_asset(source.id)
+        return moved
+
     @staticmethod
     def _asset_from_row(row: sqlite3.Row) -> MediaAsset:
         return MediaAsset(
@@ -210,6 +285,13 @@ class IndexStore:
 
     def asset_count(self) -> int:
         return int(self.conn.execute("SELECT COUNT(*) FROM assets").fetchone()[0])
+
+    def video_asset_count(self) -> int:
+        return int(
+            self.conn.execute(
+                "SELECT COUNT(*) FROM assets WHERE width > 0 AND height > 0"
+            ).fetchone()[0]
+        )
 
     def visual_sample_count(self) -> int:
         return int(self.conn.execute("SELECT COUNT(*) FROM visual_samples").fetchone()[0])

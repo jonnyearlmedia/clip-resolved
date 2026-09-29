@@ -1,5 +1,7 @@
 # Assembly Strategy
 
+> System priority: implementation reuse serves the complete autonomous workflow in `DEFINITION_OF_DONE.md`. A well-integrated subsystem is not completion unless the installed app passes that end-to-end contract.
+
 ## Default implementation philosophy
 
 **clip resolved should be assembled from proven open-source tools whenever possible.**

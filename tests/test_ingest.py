@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from clip_resolved import ingest
 
@@ -64,3 +65,65 @@ def test_scan_mic_card_creates_audio_session_without_camera_video(tmp_path, monk
     assert result["groups"][0]["audio_count"] == 2
     assert result["groups"][0]["video_count"] == 0
     assert all(item["kind"] == "audio" for item in result["groups"][0]["files"])
+
+
+def test_ffprobe_retries_a_transient_external_media_read(monkeypatch, tmp_path):
+    video = tmp_path / "DJI_0001.MP4"
+    video.write_bytes(b"fixture")
+    calls = 0
+    payload = {
+        "streams": [
+            {
+                "codec_type": "video",
+                "duration": "10.0",
+                "avg_frame_rate": "60000/1001",
+                "width": 3840,
+                "height": 2160,
+                "tags": {},
+            }
+        ],
+        "format": {"duration": "10.0", "tags": {}},
+    }
+
+    def fake_run(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return SimpleNamespace(returncode=1, stdout="", stderr="temporary I/O error")
+        return SimpleNamespace(returncode=0, stdout=__import__("json").dumps(payload), stderr="")
+
+    monkeypatch.setattr(ingest.subprocess, "run", fake_run)
+    monkeypatch.setattr(ingest.time, "sleep", lambda _seconds: None)
+
+    result = ingest._probe_video(video, video.stat())
+
+    assert calls == 2
+    assert result[1] == 10.0
+    assert result[3:5] == (3840, 2160)
+
+
+def test_scan_reports_unreadable_video_without_crashing_or_silently_omitting_it(tmp_path, monkeypatch):
+    readable = tmp_path / "DJI_0001.MP4"
+    unreadable = tmp_path / "DJI_0002.MP4"
+    readable.write_bytes(b"good")
+    unreadable.write_bytes(b"bad")
+
+    def fake_probe(path, _stat):
+        if path == unreadable:
+            raise ingest.MediaProbeError("ffprobe could not read this file after 2 attempts: I/O error")
+        return datetime(2026, 9, 29, tzinfo=timezone.utc), 10.0, 59.94, 3840, 2160, True
+
+    monkeypatch.setattr(ingest, "_probe_video", fake_probe)
+
+    result = ingest.scan_source(tmp_path, Path(__file__).parents[1])
+
+    assert result["video_count"] == 2
+    assert sum(group["video_count"] for group in result["groups"]) == 1
+    assert result["scan_issues"] == [
+        {
+            "path": str(unreadable),
+            "relative_path": unreadable.name,
+            "kind": "video",
+            "reason": "ffprobe could not read this file after 2 attempts: I/O error",
+        }
+    ]

@@ -4,7 +4,7 @@
 
 The goal is not to replace Resolve. The goal is to remove repetitive work between plugging in a camera card and actually editing, while giving Resolve local semantic footage intelligence that can find, organize, and prepare useful moments from source media.
 
-> **Current status:** the local macOS app covers card/folder discovery, shoot confirmation, checksum-verified ingest, project creation, visual indexing, timed transcripts, arbitrary search, persistent project chat/memory, shoot-aware SELECTS packages, and source-linked Resolve timelines.
+> **Current status:** substantial subsystems work, including verified ingest, indexing, transcription, search, shoot-aware SELECTS, and source-linked Resolve timelines. The promised autonomous multi-device product is still incomplete. Do not treat this feature list as proof of end-to-end readiness. [`docs/PRODUCT_LAW.md`](docs/PRODUCT_LAW.md) is the authoritative contract, [`docs/SCENARIO_LEDGER.md`](docs/SCENARIO_LEDGER.md) records actual evidence, and [`docs/EXECUTION_PLAN.md`](docs/EXECUTION_PLAN.md) controls completion work.
 
 ## Core target
 
@@ -33,7 +33,8 @@ camera card or existing footage folder
   -> SynthCut CLIP visual index and optional SynthCut/Whisper transcripts
   -> arbitrary later visual or spoken-word queries
   -> VideoHighlighter region grouping + configurable handles
-  -> shoot-aware category package + complete raw-footage stringout
+  -> complete raw-footage stringout + merged ALL B-ROLL SELECTS
+  -> footage-aware category package + global review remainder
   -> DaVinci Resolve SELECTS timeline with exact original source ranges
 ```
 
@@ -51,6 +52,16 @@ source .venv/bin/activate
 clip-resolved doctor --deep
 ./script/build_and_run.sh
 ```
+
+For the normal editing build, install the signed app and its local runtime outside
+Documents so macOS does not repeatedly re-authorize a development checkout:
+
+```bash
+./script/build_and_run.sh --install
+```
+
+Then open **Clip Resolved** from Applications. The first removable card may still
+produce macOS's one-time removable-volume prompt; choose **Allow**.
 
 The bootstrap script pulls exact inspected upstream commits for:
 
@@ -93,6 +104,8 @@ Use **Project** as the control room:
 6. With two or more camera sources, click **Create Multicam** and choose audio or timecode sync. Non-overlapping clips remain in the chronological source set rather than being forced into fake overlap.
 7. Use **Footage Search** for arbitrary visual/spoken searches, or **Project Chat** for conversational requests and saved preferences.
 8. Build the profile package when ready. Event projects create a capture-time chronological stringout first, then ceremony, speech, reaction, group, candid, detail, food, and venue views plus the complete not-selected review.
+
+This describes implemented capabilities, not the final autonomy claim. A normal production run must eventually perform the applicable detection, analysis, readiness, and next-action staging automatically after each confirmed source; the user should not need Codex to decide or repair routine steps.
 
 From **Import Media**, choose an existing project as the destination to add later cards through the same checksum-verified copy path. Each camera label receives `Media/<SOURCE>`, each recorder receives `Audio/<RECORDER>`, and every ingest keeps its own manifest.
 
@@ -147,6 +160,7 @@ Every visual or transcript SELECTS creation also creates a paired `<QUERY> NOT S
 The restaurant smart package creates, in `00 TIMELINES / SELECTS`:
 
 - `00 ALL RAW FOOTAGE STRINGOUT`, containing every indexed original once in source order
+- `ALL B-ROLL SELECTS`, containing the deduplicated union of useful ranges across populated categories
 - `FOOD SHOTS SELECTS`
 - `EXTERIOR STOREFRONT SELECTS`
 - `INTERIOR DINING ROOM SELECTS`
@@ -179,6 +193,7 @@ Wideframe is the product-quality benchmark for footage understanding, not a sour
 ## Documentation
 
 - [`AGENTS.md`](AGENTS.md) — mandatory coding-agent source of truth
+- [`docs/DEFINITION_OF_DONE.md`](docs/DEFINITION_OF_DONE.md) — non-negotiable end-to-end product and proof contract
 - [`CLAUDE.md`](CLAUDE.md) — Claude Code-specific entrypoint
 - [`docs/IMPLEMENTATION_HANDOFF.md`](docs/IMPLEMENTATION_HANDOFF.md) — what is implemented, how to run it, what to test next
 - [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) — product behavior

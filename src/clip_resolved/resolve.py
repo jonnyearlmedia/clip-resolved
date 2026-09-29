@@ -158,6 +158,22 @@ class ResolveAdapter:
         return f"{base} {counter}"
 
     @classmethod
+    def _empty_timeline_by_name(cls, project, name: str):
+        """Return a same-named empty timeline left by an interrupted append."""
+        for timeline in cls._timelines(project):
+            if timeline.GetName() != name:
+                continue
+            try:
+                for media_type in ("video", "audio", "subtitle"):
+                    for track in range(1, int(timeline.GetTrackCount(media_type) or 0) + 1):
+                        if timeline.GetItemListInTrack(media_type, track) or []:
+                            return None
+            except Exception:
+                return None
+            return timeline
+        return None
+
+    @classmethod
     def _source_folder(cls, media_pool, source: ProjectSource, media_kind: str):
         root_name = "02 AUDIO" if media_kind == "audio" else "01 FOOTAGE"
         return cls._ensure_folder_path(media_pool, [root_name, source.label])
@@ -345,7 +361,16 @@ class ResolveAdapter:
             )
 
     @staticmethod
-    def _source_frame_range(moment: Moment, asset: MediaAsset) -> tuple[int, int]:
+    def _is_audio_only(asset: MediaAsset) -> bool:
+        return asset.has_audio and asset.width <= 0 and asset.height <= 0
+
+    @staticmethod
+    def _source_frame_range(
+        moment: Moment,
+        asset: MediaAsset,
+        *,
+        timeline_fps: float | None = None,
+    ) -> tuple[int, int]:
         explicit_start = moment.metadata.get("source_start_frame")
         explicit_end = moment.metadata.get("source_end_frame")
         if isinstance(explicit_start, int) and isinstance(explicit_end, int):
@@ -357,9 +382,15 @@ class ResolveAdapter:
             return explicit_start, explicit_end
         if moment.handled_start is None or moment.handled_end is None:
             raise ValueError("moment requires handled_start/handled_end before Resolve placement")
-        fps = asset.fps
+        # Audio-only files do not report a video/source fps. Resolve addresses
+        # their source in/out points in the current timeline timebase, so use
+        # the verified project rate instead of rejecting an otherwise valid WAV.
+        fps = asset.fps if asset.fps > 0 else float(timeline_fps or 0.0)
         if fps <= 0:
-            raise ValueError(f"invalid source fps for {asset.path}: {fps}")
+            raise ValueError(
+                f"invalid source/timeline fps for {asset.path}: "
+                f"source={asset.fps}, timeline={timeline_fps}"
+            )
         start = max(0, int(math.floor(moment.handled_start * fps)))
         # Resolve MCP's Studio 21 live readback proves endFrame is exclusive.
         end_exclusive = max(start + 1, int(math.ceil(moment.handled_end * fps)))
@@ -378,7 +409,19 @@ class ResolveAdapter:
         if project is None:
             raise ResolveUnavailable("No current Resolve project is open")
         self.require_saved_current_project(project_manager, project)
-        self.require_matching_project_frame_rates(project)
+        timeline_fps, _playback_fps = self.require_matching_project_frame_rates(project)
+
+        # Validate every requested trim before creating folders, importing
+        # media, or creating a timeline. A bad range must leave Resolve alone.
+        prepared_ranges: list[tuple[Moment, int, int]] = []
+        for moment in moments:
+            asset = assets[moment.asset_id]
+            start_frame, end_frame = self._source_frame_range(
+                moment,
+                asset,
+                timeline_fps=timeline_fps,
+            )
+            prepared_ranges.append((moment, start_frame, end_frame))
         media_pool = project.GetMediaPool()
         media_storage = resolve.GetMediaStorage()
 
@@ -393,10 +436,15 @@ class ResolveAdapter:
             item = existing_items.get(key)
             if item is None:
                 source = source_for_path(project_root, asset.path) if project_root else None
+                media_kind = "audio" if self._is_audio_only(asset) else "camera"
                 destination = (
-                    self._source_folder(media_pool, source, "camera")
+                    self._source_folder(media_pool, source, media_kind)
                     if source is not None
-                    else fallback_footage_folder
+                    else (
+                        self._ensure_folder_path(media_pool, ["02 AUDIO", "AUDIO"])
+                        if media_kind == "audio"
+                        else fallback_footage_folder
+                    )
                 )
                 media_pool.SetCurrentFolder(destination)
                 imported = media_storage.AddItemListToMediaPool([str(asset.path)]) or []
@@ -407,23 +455,27 @@ class ResolveAdapter:
             existing_items[key] = item
 
         media_pool.SetCurrentFolder(selects_folder)
-        actual_name = self._unique_timeline_name(project, timeline_name)
-        timeline = media_pool.CreateEmptyTimeline(actual_name)
-        if timeline is None:
-            raise RuntimeError(f"Resolve failed to create timeline: {actual_name}")
+        timeline = self._empty_timeline_by_name(project, timeline_name)
+        if timeline is not None:
+            actual_name = timeline_name
+        else:
+            actual_name = self._unique_timeline_name(project, timeline_name)
+            timeline = media_pool.CreateEmptyTimeline(actual_name)
+            if timeline is None:
+                raise RuntimeError(f"Resolve failed to create timeline: {actual_name}")
         project.SetCurrentTimeline(timeline)
 
         clip_infos = []
-        for moment in moments:
+        for moment, start_frame, end_frame in prepared_ranges:
             asset = assets[moment.asset_id]
-            start_frame, end_frame = self._source_frame_range(moment, asset)
-            clip_infos.append(
-                {
-                    "mediaPoolItem": items[moment.asset_id],
-                    "startFrame": start_frame,
-                    "endFrame": end_frame,
-                }
-            )
+            clip_info = {
+                "mediaPoolItem": items[moment.asset_id],
+                "startFrame": start_frame,
+                "endFrame": end_frame,
+            }
+            if self._is_audio_only(asset):
+                clip_info["mediaType"] = 2
+            clip_infos.append(clip_info)
 
         appended = media_pool.AppendToTimeline(clip_infos) or []
         if len(appended) != len(clip_infos):
@@ -449,6 +501,7 @@ class ResolveAdapter:
             "timeline": actual_name,
             "ranges_requested": len(clip_infos),
             "ranges_appended": len(appended),
+            "timeline_fps": timeline_fps,
             "snapshot": snapshot,
             "snapshot_exported": snapshot_exported,
         }

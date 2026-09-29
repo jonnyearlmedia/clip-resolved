@@ -131,7 +131,7 @@ Status: accepted
 Date: 2026-09-28
 
 Decision:
-Initial preparation is not limited to one manually typed query. For restaurant/hospitality footage, Clip Resolved creates a stable, ordered package containing a complete `00 ALL RAW FOOTAGE STRINGOUT`, the established category SELECTS timelines, and one global `ALL FOOTAGE NOT SELECTED REVIEW` timeline.
+Initial preparation is not limited to one manually typed query. Clip Resolved creates a stable, ordered package containing a complete `00 ALL RAW FOOTAGE STRINGOUT`, one deduplicated `ALL B-ROLL SELECTS` timeline merging useful ranges across every populated category, the established category SELECTS timelines, and one global `ALL FOOTAGE NOT SELECTED REVIEW` timeline.
 
 The complete stringout contains every indexed original once in source order. Category ranges may overlap when the same source moment is legitimately useful in more than one editorial view. The global review timeline is the exact source-frame complement of the union of those category ranges.
 
@@ -140,6 +140,40 @@ The user must regularly submit one long timeline covering all raw footage and al
 
 Consequences:
 Shoot profiles are deterministic, named, testable recipes executed by the existing SynthCut, VideoHighlighter, and Resolve adapters. Claude may select or discuss a profile conversationally but does not perform media judgment or Resolve mutations itself. Arbitrary new post-index queries remain available and are not constrained to the initial profile.
+
+### Projects grow source by source; editorial readiness is layered
+
+Status: accepted
+Date: 2026-09-29
+
+Decision:
+A Clip Resolved project is the durable container for a real edit, independent of whether its Resolve project has already been materialized. Each later camera card, recorder, phone folder, or other source can be confirmed into that existing project, verified, registered, and analyzed without rebuilding prior index work.
+
+Resolve is lazy and incremental rather than a final all-sources gate. It may be created after the first confirmed source when the editor is ready to work. Later sources are added to the same Resolve project. Adding indexed camera footage makes prior visual SELECTS stale until the editor confirms an update.
+
+Readiness must distinguish at least: copied and verified, camera footage indexed, spoken audio transcribed, visual SELECTS current, narration/interview SELECTS current, Resolve scaffold current, and main edit present. An index is not a SELECTS package. Narration SELECTS never count as visual footage preparation.
+
+A single semantic-query SELECTS timeline also does not count as the initial visual package, even when its paired NOT SELECTED timeline provides complete source-frame coverage. Query timelines answer one editorial question. Initial visual readiness requires the shoot-aware raw stringout, category SELECTS timelines, and global NOT SELECTED review described above.
+
+Why:
+Real projects arrive across multiple devices and times, and the editor may need to begin before the final card exists. Treating the workflow as one irreversible import or calling an indexed project Resolve-ready hides missing editorial work, as happened when Andaan had narration SELECTS but no visual B-roll SELECTS.
+
+Consequences:
+The app must route each shoot independently, retain source-specific intelligence, expose the next missing layer, and preserve a reviewed visual search as the next action after narration. New media updates only the affected intelligence and marks dependent visual preparation stale; it does not discard unrelated prior analysis or create a second Resolve project.
+
+### End-to-end autonomy is the governing completion standard
+
+Status: accepted
+Date: 2026-09-29
+
+Decision:
+`DEFINITION_OF_DONE.md` is the authoritative completion and priority contract. Clip Resolved is not complete because individual ingest, indexing, search, transcription, SELECTS, or Resolve operations work. The installed app must own the complete practical workflow across mixed and later sources, partial imports, new and existing projects, footage-adaptive intelligence, automatic organized SELECTS, idempotent Resolve updates, relaunch/recovery, and manifest-safe cleanup without developer or Codex babysitting.
+
+Why:
+Narrow successes repeatedly produced misleading completion claims while normal workflow decisions, state transitions, and neighboring scenarios remained broken or hidden. That forced the user to identify requirements already present in the product promise and made one repaired project look more representative than it was.
+
+Consequences:
+The historical quick vertical slice remains a regression test, not the project priority. Every reported symptom must be traced to a general invariant and tested across related device/order/retry scenarios. Documentation and UI must keep partial, indexed, transcribed, query-selected, fully organized, Resolve-prepared, and edit-ready states distinct. No agent may call the product solved until every proof gate in `DEFINITION_OF_DONE.md` passes.
 
 ## Rejected assumptions
 
@@ -188,12 +222,10 @@ Media safety and verified offload come first.
 
 - What filesystem folder structure should be created?
 - How should projects/shoots be named?
-- How are multi-card or multi-camera shoots represented?
-- Does a new card join an existing shoot automatically based on date/project?
+- What additional source-role metadata is needed beyond the accepted source-by-source project model?
 
 ### Resolve timing
 
-- When is the Resolve project created?
 - Should originals import immediately after verified offload while analysis continues?
 - Should organization update incrementally as analysis completes?
 - How should the system behave if Resolve is closed during processing?

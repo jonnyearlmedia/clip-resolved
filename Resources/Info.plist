@@ -16,5 +16,9 @@
   <string>14.0</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>Clip Resolved needs access to its local project files and processing tools while this development build runs from Documents.</string>
+  <key>NSRemovableVolumesUsageDescription</key>
+  <string>Clip Resolved detects and reads connected camera and recorder cards, then copies verified media to the selected project drive.</string>
 </dict>
 </plist>

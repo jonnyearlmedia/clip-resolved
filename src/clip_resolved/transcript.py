@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 from .models import MediaAsset, Moment
+from .ffprobe import discover_audio_files, probe
 from .ranges import apply_handles, merge_overlapping_handled
 from .store import IndexStore
 from .synthcut import SynthCutClipBridge
@@ -35,6 +36,13 @@ def index_transcripts(
     progress: Callable[[str], None] = print,
 ) -> int:
     root = Path(source).expanduser().resolve()
+    # External recorders are registered project sources but do not have visual
+    # frames, so the visual index intentionally skips them. Register their
+    # lightweight ffprobe metadata here before walking transcript candidates.
+    # This lets narration arrive before or after camera media without pretending
+    # an audio file is a visually indexed clip.
+    for path in discover_audio_files(root):
+        store.upsert_asset(probe(path))
     count = 0
     for asset in store.iter_assets():
         try:
@@ -97,6 +105,89 @@ def search_transcripts(query: str, store: IndexStore, *, limit: int = 50) -> lis
             )
     hits.sort(key=lambda hit: (-hit.score, str(hit.source_path), hit.start))
     return hits[: max(1, limit)]
+
+
+def transcript_context(store: IndexStore, *, max_characters: int = 40_000) -> dict:
+    """Return a bounded, source-identified transcript corpus for project chat.
+
+    This is deliberately not a semantic search. It gives the assistant the
+    complete spoken record when the corpus is small enough, so requests such as
+    "what story does she tell?" can be answered before the user knows which
+    words to search for.
+    """
+    remaining = max(1, int(max_characters))
+    files: list[dict] = []
+    cue_count = 0
+    truncated = False
+    for asset, payload in store.iter_transcripts():
+        cues: list[dict] = []
+        for segment in payload.get("cues", []):
+            text = str(segment.get("text") or "").strip()
+            if not text:
+                continue
+            if len(text) > remaining:
+                truncated = True
+                break
+            cues.append(
+                {
+                    "start": float(segment.get("start") or 0.0),
+                    "end": float(segment.get("end") or 0.0),
+                    "text": text,
+                }
+            )
+            cue_count += 1
+            remaining -= len(text)
+        if cues:
+            files.append(
+                {
+                    "source_path": str(asset.path),
+                    "duration": asset.duration,
+                    "cues": cues,
+                }
+            )
+        if truncated:
+            break
+    return {
+        "files": files,
+        "cue_count": cue_count,
+        "transcript_file_count": store.transcript_count(),
+        "truncated": truncated,
+    }
+
+
+def exact_range_moments(ranges: list[dict], store: IndexStore, *, query: str) -> tuple[list[Moment], dict[str, MediaAsset]]:
+    """Validate assistant-proposed source ranges against the local index."""
+    moments: list[Moment] = []
+    assets: dict[str, MediaAsset] = {}
+    for item in ranges:
+        source_path = Path(str(item.get("source_path") or "")).expanduser().resolve()
+        asset = store.get_asset_by_path(source_path)
+        if asset is None:
+            raise ValueError(f"Proposed source is not indexed: {source_path}")
+        start = max(0.0, float(item.get("start") or 0.0))
+        end = min(asset.duration, float(item.get("end") or 0.0))
+        if end <= start:
+            raise ValueError(f"Invalid proposed range for {source_path.name}: {start:g}-{end:g}")
+        assets[asset.id] = asset
+        moments.append(
+            Moment(
+                asset_id=asset.id,
+                source_path=asset.path,
+                detected_start=start,
+                detected_end=end,
+                handled_start=start,
+                handled_end=end,
+                score=1.0,
+                query=query,
+                labels={"assistant-proposed", "exact-source-range"},
+                provenance=["Clip Resolved transcript intelligence"],
+                metadata={"transcript": str(item.get("transcript") or "").strip()},
+            )
+        )
+    if not moments:
+        raise ValueError("No exact source ranges were proposed")
+    moments.sort(key=lambda moment: (str(moment.source_path), moment.handled_start or 0.0))
+    return moments, assets
 
 
 def transcript_moments(

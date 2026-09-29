@@ -1,159 +1,145 @@
 ---
 name: Clip Resolved
-description: A precise native macOS console for footage intelligence and Resolve preparation.
+description: A warm, precise native macOS workspace for ingest, footage intelligence, project chat, and Resolve preparation.
+source:
+  project: "Claude Design 65ade083-5ddb-4664-840e-78958f4a3474"
+  files:
+    - "Clip Resolved App.dc.html"
+    - "support.js"
 colors:
-  accent: "Highlight"
-  canvas: "Canvas"
-  primary-text: "CanvasText"
-  secondary-text: "GrayText"
+  dark-background: "#0F0D0C"
+  dark-card: "#1A1715"
+  dark-bar: "#161311"
+  dark-surface: "#211D1A"
+  dark-surface-alt: "#2A2521"
+  dark-text: "#F3ECE3"
+  accent: "#5B8CFF"
+  success: "#7FC488"
+  warm: "#F0A860"
+  danger: "#E2685F"
 typography:
-  display:
-    fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif"
-    fontWeight: 600
-  body:
-    fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif"
-    fontWeight: 400
-  timecode:
-    fontFamily: "ui-monospace, SFMono-Regular, monospace"
-    fontWeight: 400
+  ui-reference: "Manrope"
+  metadata-reference: "IBM Plex Mono"
+  native-implementation: "San Francisco and the system monospaced design"
 rounded:
   thumbnail: "6px"
+  control: "8px"
   surface: "10px"
   message: "12px"
 spacing:
   compact: "8px"
   control: "12px"
   section: "20px"
-  page: "24px"
-components:
-  button-primary:
-    backgroundColor: "{colors.accent}"
-    textColor: "{colors.canvas}"
-    rounded: "{rounded.thumbnail}"
-    padding: "6px 12px"
-  card:
-    backgroundColor: "{colors.canvas}"
-    textColor: "{colors.primary-text}"
-    rounded: "{rounded.surface}"
-    padding: "12px"
+  page: "28px"
 ---
 
 # Design System: Clip Resolved
 
-## Overview
+## Creative direction
 
-**Creative North Star: "The Edit Console"**
+Clip Resolved follows the imported Claude Design project, adapted to the real native macOS product rather than treated as a static web mockup. The visual character is a warm, near-black editorial console with compact controls, blue primary actions, monospaced source metadata, and restrained status colors.
 
-Clip Resolved is a calm, information-dense native macOS companion. The interface should feel like a trustworthy extension of an editing suite: project state is visible, media operations are explicit, and the current task has one obvious place to happen. System materials and controls supply familiarity; the product supplies editorial hierarchy and precise language.
+The design must support the full product that now exists:
 
-The experience favors durable workspaces over stacked dashboards. Project setup, search, chat, ingest, and activity each have their own navigation destination. Footage preview is an adjustable inspector in the same window, never a floating overlay that hides the active task.
+- automatic removable-card detection and read-only scanning
+- temporal shoot grouping and naming
+- verified offload into portable projects
+- multiple cameras and recorder sources added at different times
+- local visual indexing and later arbitrary searches
+- transcript search when transcripts are available
+- project chat with local memory and preferences
+- source-linked Resolve bins, SELECTS packages, NOT SELECTED coverage, audio sync, and multicam
+- an in-window source-range preview inspector
 
-**Key Characteristics:**
+Matching the old artifact never permits removing these capabilities.
 
-- Native macOS navigation, materials, controls, and semantic colors.
-- Compact professional density with 24px page margins and 20px section rhythm.
-- Source paths, timecodes, sync methods, and mutation boundaries remain visible.
-- Responsive horizontal arrangements collapse into vertical stacks before controls crowd or overlap.
+## Product structure
 
-## Colors
+The main window uses five numbered workflow destinations:
 
-The palette follows macOS semantic roles so light mode, dark mode, contrast settings, and user accent color remain authoritative.
+1. Project
+2. Import Media
+3. Footage Search
+4. Project Chat
+5. Activity
 
-### Primary
+The top bar carries the `cr` mark, the active project/index summary, theme control, and Settings. A persistent bottom status bar reports the actual current operation and Resolve state.
 
-- **System Accent:** Used sparingly for the active primary action, playable evidence, and selected-source emphasis.
+Project is the control center for sources, workflow profile, indexing, transcription, and consequential Resolve operations. Import Media remains automatic-card-first while also allowing an existing folder. Footage Search is search-first and supports arbitrary future phrases against the persistent index. Project Chat handles complex footage questions, project memory, and staged actions that still require confirmation. Activity shows truthful operational state and project readiness.
 
-### Neutral
+## Color
 
-- **System Canvas:** The window and native container ground.
-- **Primary Text:** High-contrast labels, titles, and source names.
-- **Secondary Text:** Paths, metrics, status, explanations, and supporting metadata.
+The dark palette is the reference presentation:
 
-**The Semantic Color Rule.** Never replace adaptive system colors with fixed light-mode grays or decorative brand gradients.
+- application background: `#0F0D0C`
+- content card: `#1A1715`
+- top, tab, and bottom bars: `#161311`
+- primary surface: `#211D1A`
+- secondary surface: `#2A2521`
+- primary text: `#F3ECE3`
+- accent: `#5B8CFF`
+- success: `#7FC488`
+- attention: `#F0A860`
+- destructive/error: `#E2685F`
 
-**The One Primary Action Rule.** A region may contain several operations, but only its immediate next step receives prominent accent treatment.
+The light palette is a first-class equivalent, not a simple inversion. Both themes must maintain readable text, visible borders, native focus behavior, and the same hierarchy.
+
+Blue is reserved for active navigation, playback, links, and the next meaningful action. Green means verified or ready. Orange means attention or a consequential staged action. Red means a real error or destructive action.
 
 ## Typography
 
-**Display Font:** San Francisco through the macOS system font
-**Body Font:** San Francisco through the macOS system font
-**Label/Mono Font:** SF Mono through the system monospaced design
+The Claude source uses Manrope for UI and IBM Plex Mono for metadata. The native SwiftUI implementation uses the closest platform-safe equivalents: San Francisco for interface text and the system monospaced design for paths, timecodes, scores, counts, and logs. This keeps the app legible, native, and dependency-free while preserving the source hierarchy.
 
-**Character:** Native, direct, and compact. Weight creates hierarchy; ornamental display faces and excessive uppercase do not belong in the operational interface.
+Large heavy type is limited to page and project titles. Section labels are compact uppercase monospaced labels. Body copy stays plain and short. Source evidence always keeps filenames and timecodes visually precise.
 
-### Hierarchy
+## Layout and responsiveness
 
-- **Display** (semibold, system large title): Workspace and sheet titles only.
-- **Headline** (semibold, system title/headline): Project names, confirmation titles, and section-leading facts.
-- **Body** (regular, system body/callout): Instructions, explanations, and conversational output.
-- **Label** (regular or semibold, system caption): Paths, status, media counts, and secondary metadata.
-- **Timecode** (regular, monospaced digits): In/out points, durations, scores, and other values that must align visually.
+The supported window floor is `860 x 620`; the default window is `1320 x 860`. Main content is centered up to 1200 points with 28-point page padding. Horizontal groups use `ViewThatFits`, adaptive grids, or horizontal scrolling before they overlap.
 
-**The Editorial Precision Rule.** Time-based and numeric editing evidence uses monospaced digits; prose does not.
+The preview is a real SwiftUI inspector in the same main window:
 
-## Layout
+- minimum width: 320
+- ideal width: 420
+- maximum width: 600
+- video keeps a 16:9 presentation area
+- selected handled range plays by default
+- full original source is an explicit toggle
+- close, replay, toggle, and reveal controls remain pointer and keyboard accessible
 
-The application uses a native `NavigationSplitView`: stable workspace navigation on the left, one task surface in the detail area, and an optional adjustable inspector on the right. Main content is centered up to 1040px with a 24px page inset. Long explanatory text should remain within roughly 760px.
+The inspector may reduce the main content width, but it must never float above or intercept the chat/search interface.
 
-Horizontal tool rows use `ViewThatFits` or equivalent adaptive composition and become vertical stacks when they no longer fit. The supported window floor is 860x620; fixed-width sidebars or panels must not consume the detail surface. The preview inspector is resizable from 320px to 600px with a 420px ideal width, and its video maintains a 16:9 aspect ratio.
+## Operational truth
 
-**The No Overlay Rule.** Persistent work surfaces use split views, sheets, or inspectors. They do not cover chat, search results, or primary controls.
+The interface must not invent completion percentages, media understanding, sync success, or Resolve changes. Unknown-duration work uses indeterminate progress. Exact counts come from project state. Consequential Resolve operations remain disabled until prerequisites exist and show confirmation before mutation.
 
-## Elevation & Depth
+Search results represent handled source ranges. Preview and Resolve timelines reference the original source files. No UI copy may imply that SELECTS are rendered derivative videos.
 
-The system is flat by default. Hierarchy comes from native sidebar and bar materials, group boxes, dividers, selection state, and subtle tonal fills. Shadows are not a general-purpose decoration; system sheets, menus, and inspectors own their platform elevation.
+## Component rules
 
-**The Native Depth Rule.** Let macOS provide window, sheet, menu, popover, and inspector depth. Do not add custom card shadows to imitate a web dashboard.
+- Primary buttons use the blue filled style only for the immediate next action.
+- Secondary buttons use a warm dark surface, subtle border, and compact weight.
+- Cards are flat tonal surfaces with one-pixel borders and no decorative shadow stack.
+- Inputs use the bar color with a stronger one-pixel outline.
+- Badges are small status facts, not decoration.
+- Chips are appropriate for search suggestions and operation stages.
+- Thumbnails use real extracted frames when available and a restrained diagonal-stripe placeholder while loading.
+- Sheets and Settings inherit the same palette and control styles.
+- Every icon-only control requires an accessibility description and help text.
 
-## Shapes
+## Do
 
-Forms are gently rounded and restrained: evidence thumbnails use a 6px clip, operational surfaces use 10px, and chat messages use 12px. Native buttons, fields, group boxes, tables, and segmented controls keep their platform geometry. Circular shapes are reserved for standard icon controls such as close and overflow actions.
+- Preserve automatic detection and the project-first multi-source workflow.
+- Keep original-media paths and exact time ranges visible.
+- Keep new arbitrary searches available without re-indexing.
+- Make selected range and full source visibly distinct.
+- Confirm package creation, waveform sync, multicam creation, and staged chat actions.
+- Verify both themes and the minimum supported window size in the running app.
 
-## Components
+## Do not
 
-### Buttons
-
-- **Shape:** Native macOS button geometry; custom content surfaces use the 6px small radius.
-- **Primary:** `.borderedProminent` only for the next meaningful action, such as Search, Add Source, or confirmed Resolve creation.
-- **Hover / Focus:** Inherited from native controls so pointer, keyboard, VoiceOver, and increased-contrast states remain correct.
-- **Secondary:** Native bordered, borderless, or menu styles selected by hierarchy rather than decoration.
-
-### Cards / Containers
-
-- **Corner Style:** 10px for custom operational surfaces; use `GroupBox` whenever its semantics fit.
-- **Background:** Native adaptive material or low-emphasis semantic fill.
-- **Shadow Strategy:** Flat at rest.
-- **Border:** System separator or standard group-box border.
-- **Internal Padding:** 12px compact content, 20px between major sections, 24px at page edges.
-
-### Inputs / Fields
-
-- **Style:** Native rounded text fields and segmented pickers.
-- **Focus:** Native focus ring with descriptive accessibility labels.
-- **Error / Disabled:** Disable unavailable operations in place and present operational errors through one app-level alert plus activity history.
-
-### Navigation
-
-Workspace navigation uses a standard macOS sidebar with SF Symbols and stable destinations: Project, Footage Search, Project Chat, Import Media, and Activity. Project-level actions live in Project rather than crowding every workspace toolbar.
-
-### Footage Preview Inspector
-
-The inspector stays in the main window, presents the selected source range by default, and exposes an explicit toggle to the full original source. Playback, close, and reveal controls must remain keyboard and pointer accessible. The player scales with inspector width instead of using a fixed height.
-
-## Do's and Don'ts
-
-### Do:
-
-- **Do** keep project/source readiness visible before Resolve actions.
-- **Do** use adaptive stacks and verify the 860px minimum window width.
-- **Do** keep selected-range playback distinct from full-source context.
-- **Do** preserve native semantics, keyboard behavior, VoiceOver labels, and dark-mode adaptation.
-- **Do** use exact editorial language: source, range, chronology, waveform, timecode, multicam, and Resolve.
-
-### Don't:
-
-- **Don't** build fixed-width panels that cover or crush the active workspace.
-- **Don't** scatter ingest, indexing, transcription, sync, multicam, and package creation across unrelated toolbars.
-- **Don't** present the product as a generic chatbot or decorative AI dashboard.
-- **Don't** imply footage was watched, synchronized, or changed when only a request was staged.
-- **Don't** hide source paths, original-media boundaries, or the method used for a consequential Resolve operation.
+- Do not remove automation to make the UI resemble the older mockup.
+- Do not turn the product into a generic chatbot.
+- Do not place preview in a separate window or overlay it above the active task.
+- Do not show fake progress or imply Resolve changed before confirmation succeeds.
+- Do not hide source paths, source-link behavior, or what each Resolve action will create.
+- Do not render duplicate SELECTS media.

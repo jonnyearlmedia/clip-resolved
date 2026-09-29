@@ -77,23 +77,43 @@ def default_remainder_timeline_name(selects_name: str) -> str:
     return f"{base or 'QUERY'} NOT SELECTED"
 
 
+def visual_asset_map(assets) -> dict[str, MediaAsset]:
+    """Keep camera/video assets separate from recorder-only audio coverage."""
+    return {
+        asset.id: asset
+        for asset in assets
+        if asset.width > 0 and asset.height > 0 and asset.fps > 0
+    }
+
+
 def unselected_moments(
     selected: list[Moment],
     assets: dict[str, MediaAsset],
     *,
     query: str,
+    audio_fps: float | None = None,
 ) -> list[Moment]:
     """Return the exact source-frame complement of handled SELECTS ranges."""
+    def frame_rate(asset: MediaAsset) -> float:
+        if asset.fps > 0:
+            return asset.fps
+        if asset.has_audio and asset.width <= 0 and asset.height <= 0:
+            return float(audio_fps or 0.0)
+        return 0.0
+
     selected_frames: dict[str, list[tuple[int, int]]] = {}
     for moment in selected:
         asset = assets.get(moment.asset_id)
-        if asset is None or asset.fps <= 0:
+        if asset is None:
+            continue
+        fps = frame_rate(asset)
+        if fps <= 0:
             continue
         start_seconds = moment.handled_start if moment.handled_start is not None else moment.detected_start
         end_seconds = moment.handled_end if moment.handled_end is not None else moment.detected_end
-        start = max(0, int(math.floor(start_seconds * asset.fps)))
-        end = max(start + 1, int(math.ceil(end_seconds * asset.fps)))
-        total = max(1, int(math.ceil(asset.duration * asset.fps)))
+        start = max(0, int(math.floor(start_seconds * fps)))
+        end = max(start + 1, int(math.ceil(end_seconds * fps)))
+        total = max(1, int(math.ceil(asset.duration * fps)))
         selected_frames.setdefault(asset.id, []).append((min(start, total), min(end, total)))
 
     remainder: list[Moment] = []
@@ -101,9 +121,10 @@ def unselected_moments(
         assets.values(),
         key=lambda item: (item.capture_time if item.capture_time is not None else math.inf, str(item.path)),
     ):
-        if asset.fps <= 0:
+        fps = frame_rate(asset)
+        if fps <= 0:
             continue
-        total = max(1, int(math.ceil(asset.duration * asset.fps)))
+        total = max(1, int(math.ceil(asset.duration * fps)))
         merged: list[list[int]] = []
         for start, end in sorted(selected_frames.get(asset.id, [])):
             if start >= end:
@@ -123,8 +144,8 @@ def unselected_moments(
             gaps.append((cursor, total))
 
         for start, end in gaps:
-            start_seconds = start / asset.fps
-            end_seconds = end / asset.fps
+            start_seconds = start / fps
+            end_seconds = end / fps
             remainder.append(
                 Moment(
                     asset_id=asset.id,
@@ -201,9 +222,10 @@ def find_moments(
     )
     grouped = hits_by_asset(hits)
     moments: list[Moment] = []
-    # Resolve imports the complete indexed source set, even when this query only
-    # matches a subset. Query results remain source ranges into those originals.
-    assets = {asset.id: asset for asset in store.iter_assets()}
+    # A visual SELECTS pair covers the complete indexed camera set, even when
+    # this query matches only a subset. Recorder WAVs have their own narration
+    # and transcript coverage and must never leak into a B-roll remainder.
+    assets = visual_asset_map(store.iter_assets())
 
     for asset_id, asset_hits in grouped.items():
         asset = store.get_asset(asset_id)

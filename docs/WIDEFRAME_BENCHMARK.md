@@ -1,5 +1,7 @@
 # Wideframe Intelligence Benchmark
 
+> System priority: intelligence quality is part of the installed-app completion contract in `DEFINITION_OF_DONE.md`. Fixed categories or one successful query do not satisfy footage understanding.
+
 Wideframe is a product-quality benchmark for clip resolved's footage-understanding layer, based on direct user experience.
 
 ## Required capability level
@@ -70,6 +72,46 @@ The system should be able to:
 - keep each interview logically separable from b-roll and other speakers
 
 Do not invent identity when the evidence does not support it.
+
+## Automatic intelligence begins during ingest
+
+The editor should not need to know the right search terms before the product has
+explained what arrived. After each selected source is copied and verified, the
+project intelligence pipeline should update incrementally:
+
+1. identify the source role (camera, dedicated recorder, scratch audio, or unknown)
+2. transcribe speech-bearing sources with source-local timecodes
+3. separate speakers, recording sessions, complete takes, false starts, setup
+   chatter, and silence while preserving uncertainty
+4. cluster spoken material by topic or interview question
+5. rank candidate takes using completeness, delivery, audio quality, and visual
+   usability without hiding alternates
+6. relate the spoken spine to visual coverage and identify missing or weak
+   coverage
+7. propose the output that fits the evidence: verbatim stringout, topic-sorted
+   interview selects, narration spine, alternates, b-roll coverage selects,
+   multicam, or a review queue
+
+These are proposals, not irreversible conclusions. A later recorder or camera
+card may change the source-role assignment, speaker map, topic structure, sync
+evidence, and recommended outputs. The intelligence record must therefore be
+incremental, source-linked, confidence-aware, and reversible.
+
+Current public Wideframe material reinforces this distinction: transcription is
+followed by speaker labeling, topic clustering, take ranking, and editable native
+NLE output. A transcript is evidence; it is not itself the prepared edit. Clip
+Resolved should preserve separate review stringouts, story assemblies, and
+alternates so the editor can override its judgment without returning to an
+unorganized source folder.
+
+Required behavior for the Andaan-type case:
+
+- a dedicated recorder added after camera footage supersedes scratch audio as
+  the preferred narration/interview source without discarding either source
+- the full clean narration take is proposed as an exact source-linked range
+- false starts and setup chatter remain available as alternates/review material
+- visual searches are derived from the narration's actual concepts
+- no Resolve timeline is created until the user confirms the visible proposal
 
 ## Product principle
 

@@ -28,7 +28,7 @@ final class FootagePreviewTests: XCTestCase {
     }
 
     @MainActor
-    func testPreviewControlsRemainActionableInsideInspector() throws {
+    func testPreviewControlsRemainActionableInsideLargePlaybackSheet() throws {
         _ = NSApplication.shared
         var closed = false
         let evidence = ChatEvidence(

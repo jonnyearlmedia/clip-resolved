@@ -1,5 +1,7 @@
 # Ingest Flow
 
+> System priority: ingest is one layer of the complete autonomous workflow in `DEFINITION_OF_DONE.md`. It must generalize across mixed sources, partial imports, later devices, recovery, and safe cleanup without developer babysitting.
+
 ## Step 1: Group footage on the card
 
 - Scan the card read-only.
