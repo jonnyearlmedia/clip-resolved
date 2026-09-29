@@ -108,6 +108,10 @@ class FakeProject:
     def GetSetting(self, name):
         return self.settings.get(name)
 
+    def SetSetting(self, name, value):
+        self.settings[name] = value
+        return True
+
     def GetTimelineCount(self):
         return len(self.timelines)
 
@@ -134,6 +138,9 @@ class FakeProjectManager:
 
     def GetProjectListInCurrentFolder(self):
         return [self.project.GetName()]
+
+    def ExportProject(self, name, path, with_stills_and_luts):
+        return True
 
 
 class FakeResolve:
@@ -409,3 +416,74 @@ def test_registered_sources_drive_waveform_sync_and_multicam(tmp_path):
     assert multicam["camera_sources"] == ["IPHONE", "OSMO"]
     assert multicam["multicam_clips_created"] == 1
     assert resolve.media_pool.multicam[1]["splitAtGaps"] is True
+
+
+def test_scaffold_project_adds_later_registered_recorder_without_duplicating_camera(tmp_path):
+    """Camera ingests and scaffolds Resolve first; the Mic Mini is registered and
+    the project re-scaffolded afterward. This must update the same project (no
+    second project gets created) and must not re-import the camera clips already
+    in the Media Pool, while still adding the recorder's audio into its own bin.
+
+    This is fake-API evidence for the exact sequence Jonny asked about, not a
+    live-Resolve proof: no real Resolve/DJI Mic run has happened (SCENARIO_LEDGER
+    S07/S25 stay NOT TESTED/PARTIAL for that).
+    """
+    project_root = tmp_path / "Project"
+    camera_dir = tmp_path / "Osmo"
+    camera_dir.mkdir()
+    camera_video = camera_dir / "DJI_0001.MP4"
+    camera_video.write_bytes(b"fixture")
+    register_source(project_root, camera_dir, label="OSMO", kind="camera")
+
+    resolve = FakeResolve()
+    adapter = ResolveAdapter()
+    adapter._resolve = resolve
+
+    first_run = adapter.scaffold_project(
+        project_name="Quick Test",
+        project_root=project_root,
+        source=camera_dir,
+    )
+
+    footage_root = next(
+        folder for folder in resolve.media_pool.root.children if folder.name == "01 FOOTAGE"
+    )
+    osmo_folder = next(folder for folder in footage_root.children if folder.name == "OSMO")
+    assert {clip.path for clip in osmo_folder.clips} == {str(camera_video)}
+    assert first_run["imported"] == 1
+    assert len(resolve.project_manager.GetProjectListInCurrentFolder()) == 1
+    first_project = resolve.project_manager.GetCurrentProject()
+
+    # Mic Mini arrives later and is registered as its own audio-only source.
+    mic_dir = tmp_path / "MicMini"
+    mic_dir.mkdir()
+    mic_audio = mic_dir / "MIC_0001.WAV"
+    mic_audio.write_bytes(b"fixture")
+    register_source(project_root, mic_dir, label="MIC MINI", kind="audio")
+
+    second_run = adapter.scaffold_project(
+        project_name="Quick Test",
+        project_root=project_root,
+        source=camera_dir,
+    )
+
+    # Same project, not a second one.
+    assert resolve.project_manager.GetCurrentProject() is first_project
+    assert len(resolve.project_manager.GetProjectListInCurrentFolder()) == 1
+
+    # Camera clip was not re-imported/duplicated.
+    osmo_folder_again = next(
+        folder for folder in footage_root.children if folder.name == "OSMO"
+    )
+    assert osmo_folder_again is osmo_folder
+    assert [clip.path for clip in osmo_folder.clips] == [str(camera_video)]
+
+    # The recorder's audio was added into its own labeled bin.
+    audio_root = next(
+        folder for folder in resolve.media_pool.root.children if folder.name == "02 AUDIO"
+    )
+    mic_folder = next(folder for folder in audio_root.children if folder.name == "MIC MINI")
+    assert {clip.path for clip in mic_folder.clips} == {str(mic_audio)}
+
+    # Only the new recorder file was imported on the second run.
+    assert second_run["imported"] == 1

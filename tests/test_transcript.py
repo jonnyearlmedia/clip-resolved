@@ -2,7 +2,15 @@ from pathlib import Path
 
 from clip_resolved.models import MediaAsset
 from clip_resolved.store import IndexStore
-from clip_resolved.transcript import exact_range_moments, search_transcripts, transcript_context, transcript_moments
+from clip_resolved.transcript import (
+    exact_range_moments,
+    index_transcripts,
+    list_speakers,
+    search_transcripts,
+    speaker_moments,
+    transcript_context,
+    transcript_moments,
+)
 
 
 def _asset(path: Path, *, size: int = 10, mtime_ns: int = 1) -> MediaAsset:
@@ -122,3 +130,143 @@ def test_exact_range_moments_validate_and_preserve_requested_source_range(tmp_pa
     assert moments[0].handled_start == 2.5
     assert moments[0].handled_end == 12.0
     assert moments[0].metadata["transcript"] == "Clean take"
+
+
+class _FakeTranscribeBridge:
+    def transcribe(self, path, *, language, model):
+        return {
+            "cues": [
+                {"start": 0.0, "end": 2.0, "text": "Hello there"},
+                {"start": 3.0, "end": 5.0, "text": "Nice to meet you"},
+            ],
+            "words": [],
+        }
+
+
+def _fake_diarize(video_path: str, cues: list[dict]) -> list[dict]:
+    labels = ["Person 1", "Person 2"]
+    for i, cue in enumerate(cues):
+        cue["speaker_label"] = labels[i % len(labels)]
+    return cues
+
+
+def test_index_transcripts_diarize_true_tags_cues_with_speaker_labels(tmp_path: Path):
+    source = tmp_path / "DJI_0001.MP4"
+    source.write_bytes(b"video")
+    with IndexStore(tmp_path / "index.sqlite3") as store:
+        item = _asset(source)
+        store.upsert_asset(item)
+
+        index_transcripts(
+            tmp_path,
+            store,
+            _FakeTranscribeBridge(),
+            diarize=True,
+            diarize_fn=_fake_diarize,
+        )
+
+        payload = store.get_transcript(item.id)
+        assert [cue["speaker_label"] for cue in payload["cues"]] == ["Person 1", "Person 2"]
+
+
+def test_index_transcripts_diarize_false_never_calls_diarize_fn(tmp_path: Path):
+    source = tmp_path / "DJI_0001.MP4"
+    source.write_bytes(b"video")
+    calls: list[str] = []
+
+    def tracking_diarize(video_path: str, cues: list[dict]) -> list[dict]:
+        calls.append(video_path)
+        return cues
+
+    with IndexStore(tmp_path / "index.sqlite3") as store:
+        item = _asset(source)
+        store.upsert_asset(item)
+
+        index_transcripts(
+            tmp_path,
+            store,
+            _FakeTranscribeBridge(),
+            diarize=False,
+            diarize_fn=tracking_diarize,
+        )
+
+        payload = store.get_transcript(item.id)
+        assert calls == []
+        assert "speaker_label" not in payload["cues"][0]
+
+
+def test_index_transcripts_diarize_failure_degrades_to_plain_transcript(tmp_path: Path):
+    source = tmp_path / "DJI_0001.MP4"
+    source.write_bytes(b"video")
+    messages: list[str] = []
+
+    def broken_diarize(video_path: str, cues: list[dict]) -> list[dict]:
+        raise RuntimeError("no GPU / model unavailable")
+
+    with IndexStore(tmp_path / "index.sqlite3") as store:
+        item = _asset(source)
+        store.upsert_asset(item)
+
+        count = index_transcripts(
+            tmp_path,
+            store,
+            _FakeTranscribeBridge(),
+            diarize=True,
+            diarize_fn=broken_diarize,
+            progress=messages.append,
+        )
+
+        payload = store.get_transcript(item.id)
+
+    assert count == 1
+    assert len(payload["cues"]) == 2
+    assert "speaker_label" not in payload["cues"][0]
+    assert any("diarization failed" in message for message in messages)
+
+
+def test_list_speakers_and_speaker_moments_group_by_diarized_label(tmp_path: Path):
+    source_a = tmp_path / "DJI_0001.MP4"
+    source_b = tmp_path / "DJI_0002.MP4"
+    source_a.write_bytes(b"video")
+    source_b.write_bytes(b"video")
+    with IndexStore(tmp_path / "index.sqlite3") as store:
+        asset_a = MediaAsset(
+            id="a", path=source_a, duration=30.0, fps=60.0, width=3840, height=2160,
+            has_audio=True, size=10, mtime_ns=1,
+        )
+        asset_b = MediaAsset(
+            id="b", path=source_b, duration=30.0, fps=60.0, width=3840, height=2160,
+            has_audio=True, size=10, mtime_ns=1,
+        )
+        store.upsert_asset(asset_a)
+        store.upsert_asset(asset_b)
+        store.put_transcript(
+            asset_a.id,
+            {
+                "cues": [
+                    {"start": 1.0, "end": 3.0, "text": "I run the kitchen", "speaker_label": "Person 1"},
+                    {"start": 5.0, "end": 7.0, "text": "and I do the front", "speaker_label": "Person 2"},
+                    {"start": 9.0, "end": 10.0, "text": "unclear", "speaker_label": "Unknown"},
+                ],
+                "words": [],
+            },
+        )
+        store.put_transcript(
+            asset_b.id,
+            {
+                "cues": [
+                    {"start": 2.0, "end": 4.0, "text": "more from person one", "speaker_label": "Person 1"},
+                ],
+                "words": [],
+            },
+        )
+
+        speakers = list_speakers(store)
+        assert speakers == ["Person 1", "Person 2"]
+
+        moments, assets = speaker_moments("Person 1", store, pre_handle=0, post_handle=0, minimum_duration=0)
+
+    assert list(assets) == [asset_a.id, asset_b.id]
+    assert len(moments) == 2
+    assert {moment.source_path for moment in moments} == {source_a, source_b}
+    assert all(moment.metadata["speaker_label"] == "Person 1" for moment in moments)

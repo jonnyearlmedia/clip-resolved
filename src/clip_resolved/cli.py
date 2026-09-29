@@ -13,7 +13,15 @@ from .semantic import index_media, search
 from .sources import load_sources, register_source
 from .store import IndexStore
 from .synthcut import SynthCutClipBridge, SynthCutBridgeError
-from .transcript import exact_range_moments, index_transcripts, search_transcripts, transcript_context, transcript_moments
+from .transcript import (
+    exact_range_moments,
+    index_transcripts,
+    list_speakers,
+    search_transcripts,
+    speaker_moments,
+    transcript_context,
+    transcript_moments,
+)
 from .videohighlighter import VideoHighlighterAdapter
 from .workflow import (
     all_source_moments,
@@ -299,6 +307,7 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
             language=args.language,
             model=args.model,
             force=args.force,
+            diarize=args.diarize,
             progress=lambda msg: print(msg, file=sys.stderr),
         )
         _json_dump(
@@ -306,8 +315,47 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
                 "project_root": str(project_root),
                 "transcripts_updated": updated,
                 "transcripts_in_store": store.transcript_count(),
+                "diarized": args.diarize,
             }
         )
+    return 0
+
+
+def cmd_speakers(args: argparse.Namespace) -> int:
+    with IndexStore.for_project(args.project_root) as store:
+        _json_dump({"speakers": list_speakers(store)})
+    return 0
+
+
+def cmd_speaker_selects(args: argparse.Namespace) -> int:
+    with IndexStore.for_project(args.project_root) as store:
+        moments, assets = speaker_moments(
+            args.speaker_label,
+            store,
+            pre_handle=args.pre_handle,
+            post_handle=args.post_handle,
+            minimum_duration=args.minimum_duration,
+        )
+        if not moments:
+            print(
+                f"No transcript cues found for speaker {args.speaker_label!r}; "
+                "Resolve was not changed.",
+                file=sys.stderr,
+            )
+            return 2
+        timeline_name = args.timeline_name or f"{args.speaker_label.upper()} SELECTS"
+        result = _create_selects_with_remainder(
+            timeline_name=timeline_name,
+            moments=moments,
+            assets=assets,
+            project_root=Path(args.project_root),
+            query=f"speaker: {args.speaker_label}",
+            create_remainder=not args.no_remainder,
+            remainder_name=args.remainder_timeline_name,
+        )
+        result["speaker_label"] = args.speaker_label
+        result["moments"] = len(moments)
+        _json_dump(result)
     return 0
 
 
@@ -920,6 +968,15 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe.add_argument("--language", default="auto")
     transcribe.add_argument("--model", default="base.en")
     transcribe.add_argument("--force", action="store_true")
+    transcribe.add_argument(
+        "--diarize",
+        action="store_true",
+        help=(
+            "Also run local speaker diarization (Aseiel/VideoHighlighter: "
+            "Resemblyzer + clustering, no HuggingFace token) and tag each "
+            "transcript cue with a speaker label"
+        ),
+    )
     transcribe.set_defaults(func=cmd_transcribe)
 
     transcript_search = sub.add_parser("transcript-search", help="Search existing timed transcripts")
@@ -966,6 +1023,31 @@ def build_parser() -> argparse.ArgumentParser:
     transcript_moment_parser.add_argument("--post-handle", type=float, default=1.5)
     transcript_moment_parser.add_argument("--minimum-duration", type=float, default=4.0)
     transcript_moment_parser.set_defaults(func=cmd_transcript_moments)
+
+    speakers_parser = sub.add_parser(
+        "speakers",
+        help="List distinct diarized speaker labels found in stored transcripts",
+    )
+    speakers_parser.add_argument("--project-root", required=True)
+    speakers_parser.set_defaults(func=cmd_speakers)
+
+    speaker_selects = sub.add_parser(
+        "speaker-selects",
+        help="Create a Resolve SELECTS timeline from one diarized speaker's cues",
+    )
+    speaker_selects.add_argument("--project-root", required=True)
+    speaker_selects.add_argument("speaker_label", help='e.g. "Person 1", from `speakers`')
+    speaker_selects.add_argument("--timeline-name")
+    speaker_selects.add_argument("--pre-handle", type=float, default=1.0)
+    speaker_selects.add_argument("--post-handle", type=float, default=1.5)
+    speaker_selects.add_argument("--minimum-duration", type=float, default=4.0)
+    speaker_selects.add_argument("--remainder-timeline-name")
+    speaker_selects.add_argument(
+        "--no-remainder",
+        action="store_true",
+        help="Do not create the exact NOT SELECTED complement timeline",
+    )
+    speaker_selects.set_defaults(func=cmd_speaker_selects)
 
     exact_ranges = sub.add_parser(
         "exact-range-selects",

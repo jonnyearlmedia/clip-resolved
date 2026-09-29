@@ -15,6 +15,16 @@ dependencies = [
 dev = [
   "pytest>=8.0,<9",
 ]
+diarization = [
+  "resemblyzer>=0.1.4",
+  "librosa>=1.0",
+  "scikit-learn>=1.9",
+  # webrtcvad (a resemblyzer dependency) still does `import pkg_resources`
+  # unconditionally at import time. setuptools>=81 dropped that module, which
+  # breaks the import chain with no error until you actually try to diarize.
+  # Confirmed on this machine (Python 3.14, setuptools 84) 2026-09-29.
+  "setuptools<81",
+]
 
 [project.scripts]
 clip-resolved = "clip_resolved.cli:main"

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -13,6 +15,36 @@ from .synthcut import SynthCutClipBridge
 
 
 _NON_SPEECH = re.compile(r"^\s*\[[A-Z_ ]+\]\s*$", re.IGNORECASE)
+
+
+def _default_diarize(
+    video_path: str,
+    cues: list[dict],
+    *,
+    progress: Callable[[str], None],
+) -> list[dict]:
+    """Run the vendored VideoHighlighter speaker diarization in-place.
+
+    Loaded lazily and the same way videohighlighter.py loads auto_segments:
+    the pinned checkout is added to sys.path rather than reproducing its
+    Resemblyzer/clustering pipeline here. No HuggingFace token or gated
+    model is required.
+    """
+    upstream_root = Path(__file__).resolve().parents[2] / "external" / "VideoHighlighter"
+    if not upstream_root.exists():
+        raise RuntimeError(
+            f"VideoHighlighter checkout missing at {upstream_root}. "
+            "Run scripts/bootstrap_upstreams.sh first."
+        )
+    root = str(upstream_root)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    module = importlib.import_module("modules.speaker_utils")
+    return module.enrich_segments_with_speakers(
+        video_path=video_path,
+        whisper_segments=cues,
+        log_fn=progress,
+    )
 
 
 @dataclass(frozen=True)
@@ -33,6 +65,8 @@ def index_transcripts(
     language: str = "auto",
     model: str = "base.en",
     force: bool = False,
+    diarize: bool = False,
+    diarize_fn: Callable[[str, list[dict]], list[dict]] | None = None,
     progress: Callable[[str], None] = print,
 ) -> int:
     root = Path(source).expanduser().resolve()
@@ -68,6 +102,19 @@ def index_transcripts(
         ]
         payload["model"] = model
         payload["language"] = language
+        if diarize and payload["cues"]:
+            try:
+                if diarize_fn is not None:
+                    payload["cues"] = diarize_fn(str(asset.path), payload["cues"])
+                else:
+                    payload["cues"] = _default_diarize(
+                        str(asset.path), payload["cues"], progress=progress
+                    )
+            except Exception as exc:  # noqa: BLE001 - diarization is best-effort
+                progress(
+                    f"diarization failed for {asset.path.name}: {exc}; "
+                    "keeping plain transcript"
+                )
         store.put_transcript(asset.id, payload)
         count += 1
     return count
@@ -226,4 +273,64 @@ def transcript_moments(
                 minimum=minimum_duration,
             )
         )
+    return merge_overlapping_handled(moments), assets
+
+
+def list_speakers(store: IndexStore) -> list[str]:
+    """Return distinct diarized speaker labels present in stored transcripts.
+
+    Empty until transcripts have been built with diarize=True. Cues that
+    diarization could not attribute to a speaker carry no usable label and
+    are excluded here rather than surfaced as a fake "Unknown" category.
+    """
+    labels: set[str] = set()
+    for _asset, payload in store.iter_transcripts():
+        for segment in payload.get("cues", []):
+            label = str(segment.get("speaker_label") or "").strip()
+            if label and label.lower() != "unknown":
+                labels.add(label)
+    return sorted(labels)
+
+
+def speaker_moments(
+    speaker_label: str,
+    store: IndexStore,
+    *,
+    pre_handle: float = 1.0,
+    post_handle: float = 1.5,
+    minimum_duration: float = 4.0,
+) -> tuple[list[Moment], dict[str, MediaAsset]]:
+    """Turn cues diarization attributed to one speaker into handled moments."""
+    assets = {asset.id: asset for asset in store.iter_assets()}
+    moments: list[Moment] = []
+    for asset, payload in store.iter_transcripts():
+        if asset.id not in assets:
+            continue
+        for segment in payload.get("cues", []):
+            label = str(segment.get("speaker_label") or "").strip()
+            if label != speaker_label:
+                continue
+            text = str(segment.get("text") or "").strip()
+            start = float(segment.get("start") or 0.0)
+            end = max(float(segment.get("end") or 0.0), start + 0.1)
+            moment = Moment(
+                asset_id=asset.id,
+                source_path=asset.path,
+                detected_start=start,
+                detected_end=end,
+                score=1.0,
+                query=f"speaker: {speaker_label}",
+                labels={"speaker", speaker_label},
+                provenance=["Aseiel/VideoHighlighter:modules/speaker_utils.py"],
+                metadata={"transcript": text, "speaker_label": speaker_label},
+            )
+            moments.append(
+                apply_handles(
+                    moment,
+                    asset.duration,
+                    pre=pre_handle,
+                    post=post_handle,
+                    minimum=minimum_duration,
+                )
+            )
     return merge_overlapping_handled(moments), assets
