@@ -7,7 +7,7 @@ Last audited: 2026-09-29
 | ID | Scenario | Current state | Evidence today | Missing proof |
 |---|---|---|---|---|
 | S01 | Single clean camera shoot | AUTOMATED ONLY | scan/offload/index/Resolve unit and fake-API tests | clean installed-app real-card run |
-| S02 | Multi-shoot card to new projects | APP SMOKE | installed app shows 7 proposed shoots and independent cards | confirm into disposable destinations and read back |
+| S02 | Multi-shoot card to new projects | APP SMOKE | installed app shows 7 proposed shoots and independent cards; re-scanned same real card via CLI after today's Gate 1/6 fixes, reproduced identical 201 videos / 7 groups / 0 unassigned / 0 issues | confirm into disposable destinations and read back |
 | S03 | Mixed new and existing projects | AUTOMATED ONLY | per-shoot routing tests | installed-app mixed card with several real destinations |
 | S04 | Partial import under limited capacity | AUTOMATED ONLY | routing/capacity tests; real destination has less free space than full source | real selected-only ingest and source readback |
 | S05 | Regrouping and undo | APP SMOKE | move/split/merge/sidecar tests plus installed-app split 7→8 and Undo 8→7 on the real card | installed multi-move/merge/redo/reset matrix at all target sizes |
@@ -28,7 +28,7 @@ Last audited: 2026-09-29
 | S20 | Multiple interview takes | NOT TESTED | timed transcript search exists | take-boundary/speaker evaluation on real interview footage |
 | S21 | Event/family chronology | AUTOMATED ONLY | event chronology and profile tests | real family/event package audit |
 | S22 | Evidence-adaptive package | NOT TESTED | current profiles are fixed priors | footage-derived category proposal and four-project benchmark |
-| S23 | New post-index query | REAL PASS (subsystem) | OSAKA arbitrary query and Resolve source-range proof | preserve as regression; not full product proof |
+| S23 | New post-index query | REAL PASS (subsystem) | OSAKA arbitrary query and Resolve source-range proof; re-ran a fresh unplanned query ("people walking through a market") against the real OSAKA index after today's fixes, still returns real timestamped source hits | preserve as regression; not full product proof |
 | S24 | Two searches in one session | NOT TESTED | saved query structures exist | UI association and exact Resolve action test |
 | S25 | Later-source package update | NOT TESTED | readiness can become stale | idempotent package/Resolve update implementation and run |
 | S26 | Resolve unavailable/wrong | AUTOMATED ONLY | rate/unsaved/interrupted-empty-timeline tests | installed UI recovery for every failure path |
