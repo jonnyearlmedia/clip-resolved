@@ -1087,7 +1087,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     smart_selects.add_argument("--limit", type=int, default=80)
     smart_selects.add_argument("--per-asset-limit", type=int, default=30)
-    smart_selects.add_argument("--min-score", type=float, default=0.22)
+    smart_selects.add_argument(
+        "--min-score",
+        type=float,
+        default=0.27,
+        help=(
+            "Minimum match strength for both category evidence and individual clip "
+            "selection. 0.22 (the general point-search default) was proven too loose "
+            "for package-quality selects on two real projects (OSAKA, Andaan Gallery) "
+            "-- it accepted nearly every candidate category regardless of real fit."
+        ),
+    )
     smart_selects.add_argument("--pre-handle", type=float, default=2.0)
     smart_selects.add_argument("--post-handle", type=float, default=3.0)
     smart_selects.add_argument("--minimum-duration", type=float, default=6.0)
@@ -1118,7 +1128,7 @@ def build_parser() -> argparse.ArgumentParser:
     smart_selects.add_argument(
         "--min-category-assets",
         type=int,
-        default=2,
+        default=3,
         help="With --adaptive, minimum distinct clips a category must appear in to be kept/proposed",
     )
     smart_selects.add_argument(

@@ -108,8 +108,8 @@ def propose_categories(
     *,
     base_profile: tuple[SelectsCategory, ...] | None = None,
     candidate_pool: tuple[SelectsCategory, ...] | None = None,
-    min_assets: int = 2,
-    min_score: float = 0.22,
+    min_assets: int = 3,
+    min_score: float = 0.27,
     search_limit: int = 80,
     per_asset_limit: int = 30,
 ) -> tuple[list[SelectsCategory], dict[str, list[str]]]:
