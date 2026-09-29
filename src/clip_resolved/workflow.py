@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from .semantic import hits_by_asset, search
 from .store import IndexStore
 from .synthcut import SynthCutClipBridge
 from .videohighlighter import VideoHighlighterAdapter
+from .vision_verify import extract_frame, verify_candidates
 
 
 @dataclass(frozen=True)
@@ -364,3 +366,87 @@ def find_moments(
     # SELECTS/stringout convention: preserve source chronology. Score remains on
     # each moment so a later UI can sort/rank without losing editorial order.
     return merge_overlapping_handled(moments), assets
+
+
+def vision_verify_moments(
+    category_name: str,
+    category_query: str,
+    moments: list[Moment],
+    assets: dict[str, MediaAsset],
+    *,
+    top_k: int = 10,
+) -> tuple[list[Moment], dict]:
+    """Let Claude actually look at the strongest CLIP candidates for a category
+    and judge real relevance, instead of trusting a raw similarity score.
+
+    CLIP-only similarity search is fast but can't reason -- it was proven on
+    real client footage (Andaan Gallery, 2026-09-29) to accept category
+    "matches" that a person would immediately reject. This adds Claude as a
+    real second-pass judge on the shortlist: the top `top_k` moments by score
+    are rendered to real frames and reviewed; only ones Claude confirms are
+    kept, so a category is either evidence-backed AND actually verified, or it
+    stays empty rather than getting padded with weak CLIP-only guesses.
+
+    Degrades to returning `moments` completely unchanged (with an explanatory
+    report) if Claude isn't available, isn't authenticated, or the call fails
+    for any reason -- this can never crash smart-selects or block Resolve
+    creation on a missing/broken Claude Code install.
+    """
+    if not moments:
+        return moments, {"verified": 0, "kept": 0, "dropped": 0, "verify_available": False}
+
+    shortlist = sorted(moments, key=lambda m: m.score, reverse=True)[:top_k]
+
+    with tempfile.TemporaryDirectory(prefix="clip-resolved-verify-") as tmp:
+        frame_paths: list[Path] = []
+        frame_indices: list[int] = []
+        for position, moment in enumerate(shortlist):
+            asset = assets.get(moment.asset_id)
+            if asset is None:
+                continue
+            start = moment.handled_start if moment.handled_start is not None else moment.detected_start
+            end = moment.handled_end if moment.handled_end is not None else moment.detected_end
+            midpoint = start + max(0.0, (end - start)) / 2.0
+            frame_path = Path(tmp) / f"{position}.jpg"
+            try:
+                extract_frame(asset.path, midpoint, frame_path)
+            except RuntimeError:
+                continue
+            frame_paths.append(frame_path)
+            frame_indices.append(position)
+
+        if not frame_paths:
+            return moments, {"verified": 0, "kept": len(moments), "dropped": 0, "verify_available": False}
+
+        verdicts = verify_candidates(category_name, category_query, frame_paths)
+
+    if not verdicts:
+        return moments, {"verified": 0, "kept": len(moments), "dropped": 0, "verify_available": False}
+
+    shortlist_ids = {id(m) for m in shortlist}
+    kept: list[Moment] = []
+    dropped = 0
+    for local_index, position in enumerate(frame_indices):
+        moment = shortlist[position]
+        verdict = verdicts.get(local_index)
+        if verdict is None:
+            # This specific candidate's verdict didn't come back cleanly --
+            # keep it rather than silently discard real CLIP evidence.
+            kept.append(moment)
+            continue
+        if verdict.relevant:
+            moment.metadata["vision_verify_reason"] = verdict.reason
+            kept.append(moment)
+        else:
+            dropped += 1
+
+    # Anything below the shortlist was never sent to Claude; treated as
+    # unverified and kept, since only the shortlist is Claude-reviewed.
+    kept.extend(m for m in moments if id(m) not in shortlist_ids)
+
+    return kept, {
+        "verified": len(verdicts),
+        "kept": len(kept),
+        "dropped": dropped,
+        "verify_available": True,
+    }

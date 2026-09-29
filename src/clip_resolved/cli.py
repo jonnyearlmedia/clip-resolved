@@ -31,6 +31,7 @@ from .workflow import (
     propose_categories,
     selects_profile,
     unselected_moments,
+    vision_verify_moments,
     visual_asset_map,
 )
 
@@ -587,7 +588,7 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
                 search_limit=args.limit,
                 per_asset_limit=args.per_asset_limit,
             )
-            if args.dry_run:
+            if args.dry_run and not args.vision_verify:
                 _json_dump(
                     {
                         "profile": args.profile,
@@ -609,6 +610,7 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
 
         # Finish all semantic planning before the first Resolve mutation. This
         # keeps an empty/overly strict profile from leaving a partial package.
+        verify_reports: dict[str, dict] = {}
         for category in categories:
             moments, _ = find_moments(
                 category.query,
@@ -622,8 +624,36 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
                 post_handle=args.post_handle,
                 minimum_duration=args.minimum_duration,
             )
+            if args.vision_verify:
+                moments, report = vision_verify_moments(
+                    category.timeline_name,
+                    category.query,
+                    moments,
+                    assets,
+                    top_k=args.verify_top_k,
+                )
+                verify_reports[category.timeline_name] = report
             planned_categories.append((category, moments))
             all_selected.extend(moments)
+
+        if args.dry_run:
+            _json_dump(
+                {
+                    "profile": args.profile,
+                    "adaptive": args.adaptive,
+                    "vision_verify": args.vision_verify,
+                    "categories": [
+                        {
+                            "name": category.timeline_name,
+                            "query": category.query,
+                            "moments": len(moments),
+                            "vision_verify": verify_reports.get(category.timeline_name),
+                        }
+                        for category, moments in planned_categories
+                    ],
+                }
+            )
+            return 0
 
         if not all_selected:
             print("No category moments found; Resolve was not changed.", file=sys.stderr)
@@ -724,6 +754,8 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
                 "adaptive": args.adaptive,
                 "dropped_priors": evidence_report["dropped"] if evidence_report else [],
                 "discovered_categories": evidence_report["discovered"] if evidence_report else [],
+                "vision_verify": args.vision_verify,
+                "vision_verify_reports": verify_reports,
             }
         )
     return 0
@@ -1134,7 +1166,23 @@ def build_parser() -> argparse.ArgumentParser:
     smart_selects.add_argument(
         "--dry-run",
         action="store_true",
-        help="With --adaptive, print the proposed category package and exit without touching Resolve",
+        help="With --adaptive and/or --vision-verify, print the planned package and exit without touching Resolve",
+    )
+    smart_selects.add_argument(
+        "--vision-verify",
+        action="store_true",
+        help=(
+            "Have Claude actually look at the strongest CLIP candidate frames per category "
+            "and judge real relevance, dropping ones it rejects, instead of trusting the raw "
+            "similarity score alone. Uses the local Claude Code install (no separate API key), "
+            "costs real time/usage per category, and is opt-in for that reason."
+        ),
+    )
+    smart_selects.add_argument(
+        "--verify-top-k",
+        type=int,
+        default=10,
+        help="With --vision-verify, how many top-scoring candidates per category Claude reviews",
     )
     smart_selects.set_defaults(func=cmd_smart_selects)
 
