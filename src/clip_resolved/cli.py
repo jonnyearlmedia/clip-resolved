@@ -6,6 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from .category_discovery import discover_categories
 from .resolve import ResolveAdapter, ResolveUnavailable
 from .ingest import scan_source
 from .ranges import merge_overlapping_handled
@@ -568,8 +569,10 @@ def cmd_selects(args: argparse.Namespace) -> int:
 
 def cmd_smart_selects(args: argparse.Namespace) -> int:
     """Build a shoot-aware category package plus one exact global complement."""
+    if args.profile is None and not args.discover:
+        raise RuntimeError("smart-selects requires --profile, --discover, or both.")
     project_root = Path(args.project_root).expanduser().resolve()
-    base_categories = selects_profile(args.profile)
+    base_categories = selects_profile(args.profile) if args.profile else ()
     category_results: list[dict] = []
     all_selected = []
 
@@ -577,12 +580,35 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
         if store.video_asset_count() == 0:
             raise RuntimeError("No indexed footage. Run clip-resolved index first.")
 
+        builder = VideoHighlighterAdapter(_repo_root())
+        assets = visual_asset_map(store.iter_assets())
+        adapter = ResolveAdapter(_repo_root())
+
+        # With --discover, Claude looks at real sampled frames from this
+        # project's own footage and proposes the categories itself, instead of
+        # only ever picking from a fixed menu written before anyone saw the
+        # shoot. Combined with a --profile, the fixed categories stay in the
+        # pool as priors too; either way, everything below still has to clear
+        # real footage evidence (and, with --vision-verify, real Claude
+        # review) before it reaches Resolve.
+        discover_report: dict | None = None
+        seed_categories = list(base_categories)
+        if args.discover:
+            discovered, discover_report = discover_categories(
+                assets, sample_size=args.discover_sample_size
+            )
+            seen_names = {c.timeline_name for c in seed_categories}
+            for category in discovered:
+                if category.timeline_name not in seen_names:
+                    seed_categories.append(category)
+                    seen_names.add(category.timeline_name)
+
         evidence_report: dict[str, list[str]] | None = None
         if args.adaptive:
             categories, evidence_report = propose_categories(
                 store,
                 bridge,
-                base_profile=base_categories,
+                base_profile=tuple(seed_categories),
                 min_assets=args.min_category_assets,
                 min_score=args.min_score,
                 search_limit=args.limit,
@@ -592,6 +618,8 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
                 _json_dump(
                     {
                         "profile": args.profile,
+                        "discover": args.discover,
+                        "discover_report": discover_report,
                         "proposed_categories": [
                             {"name": c.timeline_name, "query": c.query} for c in categories
                         ],
@@ -601,11 +629,8 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
                 )
                 return 0
         else:
-            categories = list(base_categories)
+            categories = seed_categories
 
-        builder = VideoHighlighterAdapter(_repo_root())
-        assets = visual_asset_map(store.iter_assets())
-        adapter = ResolveAdapter(_repo_root())
         planned_categories = []
 
         # Finish all semantic planning before the first Resolve mutation. This
@@ -646,6 +671,8 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
                 {
                     "profile": args.profile,
                     "adaptive": args.adaptive,
+                    "discover": args.discover,
+                    "discover_report": discover_report,
                     "vision_verify": args.vision_verify,
                     "categories": [
                         {
@@ -759,6 +786,8 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
                 "adaptive": args.adaptive,
                 "dropped_priors": evidence_report["dropped"] if evidence_report else [],
                 "discovered_categories": evidence_report["discovered"] if evidence_report else [],
+                "discover": args.discover,
+                "discover_report": discover_report,
                 "vision_verify": args.vision_verify,
                 "vision_verify_reports": verify_reports,
             }
@@ -1119,8 +1148,25 @@ def build_parser() -> argparse.ArgumentParser:
     smart_selects.add_argument("--project-root", required=True)
     smart_selects.add_argument(
         "--profile",
-        default="restaurant",
+        default=None,
         choices=["restaurant", "community-story", "event"],
+        help="A fixed category menu to use/prime from. Required unless --discover is set.",
+    )
+    smart_selects.add_argument(
+        "--discover",
+        action="store_true",
+        help=(
+            "Have Claude look at real sampled frames from this project's actual footage and "
+            "invent the categories itself, instead of picking from a fixed --profile menu. "
+            "Makes --profile optional; if both are given, discovered categories are combined "
+            "with the fixed profile as additional candidates."
+        ),
+    )
+    smart_selects.add_argument(
+        "--discover-sample-size",
+        type=int,
+        default=24,
+        help="With --discover, how many real frames across the project Claude looks at",
     )
     smart_selects.add_argument("--limit", type=int, default=80)
     smart_selects.add_argument("--per-asset-limit", type=int, default=30)
