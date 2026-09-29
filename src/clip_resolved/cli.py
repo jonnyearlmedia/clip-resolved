@@ -612,6 +612,11 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
         # keeps an empty/overly strict profile from leaving a partial package.
         verify_reports: dict[str, dict] = {}
         for category in categories:
+            # With vision-verify on, Claude does the real relevance judgment, so
+            # candidate gathering deliberately casts a wider net than the
+            # stricter unverified min-score -- otherwise the tightened default
+            # can exclude real candidates before Claude ever sees them.
+            candidate_min_score = args.candidate_min_score if args.vision_verify else args.min_score
             moments, _ = find_moments(
                 category.query,
                 store,
@@ -619,7 +624,7 @@ def cmd_smart_selects(args: argparse.Namespace) -> int:
                 builder,
                 search_limit=args.limit,
                 per_asset_limit=args.per_asset_limit,
-                min_score=args.min_score,
+                min_score=candidate_min_score,
                 pre_handle=args.pre_handle,
                 post_handle=args.post_handle,
                 minimum_duration=args.minimum_duration,
@@ -1183,6 +1188,19 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=10,
         help="With --vision-verify, how many top-scoring candidates per category Claude reviews",
+    )
+    smart_selects.add_argument(
+        "--candidate-min-score",
+        type=float,
+        default=0.20,
+        help=(
+            "With --vision-verify, the looser match strength used to gather the candidate "
+            "shortlist Claude reviews (real evidence: at the stricter --min-score default, "
+            "categories can return zero candidates before Claude ever gets to look -- an "
+            "empty category is more honest than a wrong one, but it isn't a fix either. Claude "
+            "does the real filtering here, so this casts a wider net on purpose). Ignored "
+            "without --vision-verify."
+        ),
     )
     smart_selects.set_defaults(func=cmd_smart_selects)
 

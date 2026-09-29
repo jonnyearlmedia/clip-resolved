@@ -167,7 +167,12 @@ def test_vision_verify_moments_drops_rejected_and_keeps_confirmed(tmp_path, monk
     assert report["verify_available"] is True
 
 
-def test_vision_verify_moments_only_reviews_top_k_and_keeps_the_rest_unverified(tmp_path, monkeypatch):
+def test_vision_verify_moments_excludes_anything_beyond_top_k_unreviewed(tmp_path, monkeypatch):
+    """Real bug found on Andaan footage: PRODUCT FOOD SELECTS had Claude reject
+    all 10 reviewed candidates, yet the category still kept 26 clips because
+    unreviewed ones below the shortlist were silently re-added. An unreviewed
+    candidate must never come back in -- only Claude-confirmed ones count.
+    """
     item = _asset(tmp_path / "clip.mp4")
     assets = {item.id: item}
     top = _moment(item, start=0, end=4, score=0.9)
@@ -184,9 +189,10 @@ def test_vision_verify_moments_only_reviews_top_k_and_keeps_the_rest_unverified(
         "CAT", "query", [top, tail], assets, top_k=1
     )
 
-    assert top in kept
-    assert tail in kept  # never sent to Claude, so kept unverified rather than dropped
+    assert kept == [top]
+    assert tail not in kept
     assert report["verified"] == 1
+    assert report["unreviewed_excluded"] == 1
 
 
 def test_vision_verify_moments_degrades_to_unchanged_when_claude_unavailable(tmp_path, monkeypatch):

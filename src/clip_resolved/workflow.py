@@ -440,13 +440,20 @@ def vision_verify_moments(
         else:
             dropped += 1
 
-    # Anything below the shortlist was never sent to Claude; treated as
-    # unverified and kept, since only the shortlist is Claude-reviewed.
-    kept.extend(m for m in moments if id(m) not in shortlist_ids)
+    # Anything below the shortlist was never sent to Claude. It must NOT be
+    # silently re-added -- that would defeat the entire point of vision-verify
+    # (confirmed on real Andaan footage: PRODUCT FOOD SELECTS had Claude
+    # reject all 10 of its strongest candidates, yet the category still kept
+    # 26 clips total because the unreviewed remainder slipped back in
+    # unconditionally). An unreviewed candidate is neither confirmed nor
+    # rejected; only Claude-confirmed candidates count as verified evidence.
+    # Raise --verify-top-k to review more of the shortlist instead.
+    unreviewed = sum(1 for m in moments if id(m) not in shortlist_ids)
 
     return kept, {
         "verified": len(verdicts),
         "kept": len(kept),
         "dropped": dropped,
+        "unreviewed_excluded": unreviewed,
         "verify_available": True,
     }
