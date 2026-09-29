@@ -50,6 +50,7 @@ class FakeMediaPool:
         self.appended = []
         self.synced = None
         self.multicam = None
+        self.owner_project = None  # set by FakeProject; mirrors real Resolve auto-registration
 
     def GetRootFolder(self):
         return self.root
@@ -64,7 +65,11 @@ class FakeMediaPool:
         return True
 
     def CreateEmptyTimeline(self, name):
-        return FakeTimeline(name)
+        timeline = FakeTimeline(name)
+        if self.owner_project is not None:
+            self.owner_project.timelines.append(timeline)
+            self.owner_project.current_timeline = timeline
+        return timeline
 
     def AppendToTimeline(self, clip_infos):
         self.appended.extend(clip_infos)
@@ -92,6 +97,7 @@ class FakeMediaStorage:
 class FakeProject:
     def __init__(self, media_pool, timeline_rate="30", playback_rate="30"):
         self.media_pool = media_pool
+        media_pool.owner_project = self
         self.current_timeline = None
         self.timelines = []
         self.settings = {
@@ -487,3 +493,50 @@ def test_scaffold_project_adds_later_registered_recorder_without_duplicating_cam
 
     # Only the new recorder file was imported on the second run.
     assert second_run["imported"] == 1
+
+
+def test_scaffold_project_creates_obvious_main_edit_and_assets_bins_once(tmp_path):
+    """Jonny's real complaint (2026-09-29) about the Andaan project: the main
+    edit timeline ended up mixed into the SELECTS bin with a dozen
+    auto-generated category timelines, so it was unclear which one to edit
+    in, and there was no assets/music bin in Resolve at all. Every scaffolded
+    project must always get an unambiguous main edit timeline in EDITS and a
+    real ASSETS bin, and re-running scaffold must not create a duplicate.
+    """
+    project_root = tmp_path / "Project"
+    camera_dir = tmp_path / "Osmo"
+    camera_dir.mkdir()
+    (camera_dir / "DJI_0001.MP4").write_bytes(b"fixture")
+    register_source(project_root, camera_dir, label="OSMO", kind="camera")
+
+    resolve = FakeResolve()
+    adapter = ResolveAdapter()
+    adapter._resolve = resolve
+
+    adapter.scaffold_project(
+        project_name="Quick Test",
+        project_root=project_root,
+        source=camera_dir,
+    )
+
+    timelines_root = next(
+        folder for folder in resolve.media_pool.root.children if folder.name == "00 TIMELINES"
+    )
+    edits_folder = next(folder for folder in timelines_root.children if folder.name == "EDITS")
+    assets_root = next(
+        folder for folder in resolve.media_pool.root.children if folder.name == "03 ASSETS"
+    )
+    assert {folder.name for folder in assets_root.children} == {"MUSIC", "GRAPHICS"}
+
+    main_edits = [t for t in resolve.project.timelines if t.GetName() == "QUICK TEST MAIN EDIT"]
+    assert len(main_edits) == 1
+    assert edits_folder is not None
+
+    # Re-scaffolding (e.g. a later source arriving) must not create a second one.
+    adapter.scaffold_project(
+        project_name="Quick Test",
+        project_root=project_root,
+        source=camera_dir,
+    )
+    main_edits_after = [t for t in resolve.project.timelines if t.GetName() == "QUICK TEST MAIN EDIT"]
+    assert len(main_edits_after) == 1

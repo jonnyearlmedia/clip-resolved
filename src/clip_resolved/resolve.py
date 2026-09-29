@@ -158,6 +158,14 @@ class ResolveAdapter:
         return f"{base} {counter}"
 
     @classmethod
+    def _timeline_by_name(cls, project, name: str):
+        """Return any timeline with this exact name, regardless of content."""
+        for timeline in cls._timelines(project):
+            if timeline.GetName() == name:
+                return timeline
+        return None
+
+    @classmethod
     def _empty_timeline_by_name(cls, project, name: str):
         """Return a same-named empty timeline left by an interrupted append."""
         for timeline in cls._timelines(project):
@@ -566,10 +574,22 @@ class ResolveAdapter:
         if not sources:
             sources = [ProjectSource(label="OSMO", path=str(source), kind="camera")]
         self._ensure_folder_path(media_pool, ["00 TIMELINES", "SELECTS"])
-        self._ensure_folder_path(media_pool, ["00 TIMELINES", "EDITS"])
+        edits_folder = self._ensure_folder_path(media_pool, ["00 TIMELINES", "EDITS"])
+        self._ensure_folder_path(media_pool, ["03 ASSETS", "MUSIC"])
+        self._ensure_folder_path(media_pool, ["03 ASSETS", "GRAPHICS"])
 
         if int(project.GetTimelineCount() or 0) == 0:
             project.SetSetting("timelineFrameRate", str(timeline_fps))
+
+        # There must always be one obvious, unambiguous main edit timeline in
+        # EDITS, separate from the auto-generated SELECTS packages, so the
+        # editor never has to guess which timeline is the real cut.
+        main_edit_name = f"{project_name.strip().upper()} MAIN EDIT"
+        if self._timeline_by_name(project, main_edit_name) is None:
+            media_pool.SetCurrentFolder(edits_folder)
+            main_timeline = media_pool.CreateEmptyTimeline(main_edit_name)
+            if main_timeline is None:
+                raise RuntimeError(f"Resolve failed to create the main edit timeline: {main_edit_name}")
 
         imported = 0
         existing_items = self._items_by_path(media_pool)
